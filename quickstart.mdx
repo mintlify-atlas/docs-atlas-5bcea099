@@ -1,7 +1,7 @@
 ---
-title: "Get Started with Spring Cloud Microservices"
+title: "Get Started with Spring Cloud Microservices Locally"
 sidebarTitle: "Quickstart"
-description: "Run the full microservices stack locally with Docker Compose, verify service health endpoints, and learn where to go next for the complete OAuth2 flow on Kubernetes."
+description: "Run MySQL 8, PostgreSQL 14, msvc-usuarios, and msvc-cursos with Docker Compose and verify health endpoints on localhost before moving to Kubernetes."
 ---
 
 By the end of this guide you will have MySQL 8, PostgreSQL 14, msvc-usuarios, and msvc-cursos running locally via Docker Compose, with health endpoints responding on `localhost:8001` and `localhost:8002`. No Kubernetes cluster is required for this path — it is the fastest way to explore the APIs and validate your environment before moving on to a full Kubernetes deployment.
@@ -46,7 +46,7 @@ By the end of this guide you will have MySQL 8, PostgreSQL 14, msvc-usuarios, an
 
     This starts:
     - **MySQL 8** on `localhost:3307` with database `msvc_usuarios` and root password `admin123`
-    - **PostgreSQL 14** on `localhost:5532` with database `msvc_cursos`, user `postgres`, and password `postgres123`
+    - **PostgreSQL** on `localhost:5532` with database `msvc_cursos`, user `postgres`, and password `postgres123`
 
     Both containers persist data in named Docker volumes (`data-mysql` and `data-postgres`) and join the shared `spring` network.
   </Step>

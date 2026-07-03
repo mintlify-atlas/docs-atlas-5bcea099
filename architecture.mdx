@@ -1,7 +1,7 @@
 ---
 title: "System Architecture: Four-Service Microservices Design"
 sidebarTitle: "Architecture"
-description: "How traffic flows from NGINX Ingress through the API Gateway to business services, how OAuth2 tokens are issued, and how OpenFeign wires services together inside Kubernetes."
+description: "How NGINX Ingress, msvc-gateway, OAuth2 token issuance, OpenFeign inter-service calls, and isolated databases fit together in the Kubernetes cluster."
 ---
 
 The platform is a four-service microservices architecture deployed inside a Kubernetes cluster. External traffic enters through an NGINX Ingress Controller at `microservicios.local`, is routed to msvc-gateway, and then forwarded to the appropriate business service. Authentication is handled entirely by msvc-auth, which issues JWT tokens consumed by msvc-usuarios and msvc-cursos as OAuth2 Resource Servers. Services communicate with each other via OpenFeign using Kubernetes DNS, and each service owns an isolated database with no cross-service SQL access.
@@ -69,8 +69,8 @@ The `StripPrefix=2` filter removes the first two path segments before forwarding
 
 Each service owns its database exclusively. There are no shared schemas and no direct cross-service SQL queries.
 
-- **msvc-usuarios → MySQL 8** — schema `msvc_usuarios`. Managed by Spring Data JPA with `spring.jpa.generate-ddl=true`, using the `MySQL8Dialect` Hibernate dialect.
-- **msvc-cursos → PostgreSQL 14** — schema `msvc_cursos`. Managed by Spring Data JPA with `spring.jpa.generate-ddl=true`, using the `PostgreSQLDialect` Hibernate dialect.
+- **msvc-usuarios → MySQL 8** — schema `msvc_usuarios`. Managed by Spring Data JPA with Hibernate using the MySQL8 dialect.
+- **msvc-cursos → PostgreSQL 14** — schema `msvc_cursos`. Managed by Spring Data JPA with Hibernate using the PostgreSQL dialect.
 
 Cross-service data needs — such as fetching user details inside a course response — are satisfied exclusively through the REST APIs via OpenFeign, keeping each service's persistence layer fully independent.
 

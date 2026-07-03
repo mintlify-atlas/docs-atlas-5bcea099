@@ -1,7 +1,7 @@
 ---
 title: "Spring Cloud Microservices: Architecture and Capabilities"
 sidebarTitle: "Introduction"
-description: "A production-ready microservices platform built on Spring Boot 3.5, Spring Cloud 2025, OAuth2/JWT, and Kubernetes — managing users, courses, and centralized auth."
+description: "A production-ready microservices platform on Spring Boot 3.5, Spring Cloud 2025, OAuth2/JWT, and Kubernetes — managing users, courses, and auth."
 ---
 
 Spring Cloud Microservices is a four-service Java platform built with Spring Boot 3.5.0 and Spring Cloud 2025.0.0, running on Java 17. The system manages users and courses with centralized OAuth2 authentication, Kubernetes-native service discovery, horizontal auto-scaling, and structured observability via the ELK Stack. Each service is independently deployable, owns its own database, and communicates over OpenFeign with JWT-secured REST APIs.
@@ -48,7 +48,7 @@ Spring Cloud Microservices is a four-service Java platform built with Spring Boo
 - **Independent data stores** — msvc-usuarios owns a MySQL 8 schema; msvc-cursos owns a PostgreSQL 14 schema; no cross-service database access.
 - **OpenFeign inter-service calls** — services communicate via declarative HTTP clients with Kubernetes DNS-based load balancing.
 - **Multi-stage Docker builds** — images use Amazon Corretto 17 Alpine to minimize footprint and attack surface.
-- **Kubernetes-native scaling** — Horizontal Pod Autoscalers scale msvc-usuarios and msvc-cursos up to 5 replicas at 50 % CPU utilization.
+- **Kubernetes-native scaling** — Horizontal Pod Autoscalers scale msvc-usuarios and msvc-cursos up to 5 replicas at 50% CPU utilization.
 - **Structured observability** — JSON logs are shipped to Logstash and indexed in Elasticsearch with per-service daily indices (`msvc-logs-{service_name}-{date}`).
 - **NGINX Ingress rate limiting** — the Ingress controller exposes `microservicios.local` with built-in rate limiting before traffic reaches the gateway.
 - **Spring Actuator health probes** — liveness and readiness probes are enabled on all services and wired directly into Kubernetes pod lifecycle management.

@@ -1,10 +1,10 @@
 ---
 title: "GET /{id} — Get a Single User by ID"
 sidebarTitle: "Get User"
-description: "Retrieves a single Usuario record by its primary key. Requires a Bearer token with the OAuth2 read scope. Returns 404 when the ID does not exist."
+description: "Retrieves a single Usuario record by its primary key. Requires a Bearer token with the OAuth2 read or write scope. Returns 404 when the ID does not exist."
 ---
 
-Looks up a single `Usuario` by its auto-generated numeric ID. If the record exists it is returned as a JSON object; if no user matches the given ID the endpoint returns an empty `404 Not Found` response. A valid OAuth2 Bearer token with the **`read`** scope is required.
+Looks up a single `Usuario` by its auto-generated numeric ID. If the record exists it is returned as a JSON object; if no user matches the given ID the endpoint returns an empty `404 Not Found` response. A valid OAuth2 Bearer token with either the **`read`** or **`write`** scope is required.
 
 **Base URL:** `http://localhost:8001`  
 **Gateway URL:** `http://localhost:8090/api/usuarios`
@@ -40,7 +40,7 @@ GET http://localhost:8001/{id}
 
 ### 200 OK
 
-Returns a single `Usuario` object. The `password` field is **never** included in the response.
+Returns a single `Usuario` object.
 
 <ResponseField name="id" type="number">
   Auto-generated primary key of the user.
@@ -52,6 +52,10 @@ Returns a single `Usuario` object. The `password` field is **never** included in
 
 <ResponseField name="email" type="string">
   The user's unique email address.
+</ResponseField>
+
+<ResponseField name="password" type="string">
+  The BCrypt-encoded password hash stored for the user.
 </ResponseField>
 
 ### 404 Not Found
@@ -82,7 +86,8 @@ curl -X GET http://localhost:8090/api/usuarios/1 \
 {
   "id": 1,
   "nombre": "Ana García",
-  "email": "ana.garcia@example.com"
+  "email": "ana.garcia@example.com",
+  "password": "$2a$10$Xv3k8qW2mN5pL9oJ1rT6uO7yZ4hB0cD3eF5gH8iJ2kM4nP6qR8sU"
 }
 ```
 

@@ -1,10 +1,10 @@
 ---
 title: "POST / — Create a New User in msvc-usuarios"
 sidebarTitle: "Create User"
-description: "Creates a new Usuario record. The password is BCrypt-encoded before storage and is never returned. Requires a Bearer token with the OAuth2 write scope."
+description: "Creates a new Usuario record. Password is BCrypt-encoded before storage and returned as a hash in the 201 response. Requires the OAuth2 write scope."
 ---
 
-Persists a new `Usuario` to the MySQL database. Before saving, the plaintext `password` is encoded using BCrypt — the raw value is never stored or returned. The `email` field must be unique across all users; submitting a duplicate email returns a `400 Bad Request` with a descriptive message. Bean Validation is also enforced on the request body, and any constraint violations are returned as a field-keyed error map. A valid OAuth2 Bearer token with the **`write`** scope is required.
+Persists a new `Usuario` to the MySQL database. Before saving, the plaintext `password` is encoded using BCrypt — the raw value is never stored. The `email` field must be unique across all users; submitting a duplicate email returns a `400 Bad Request` with a descriptive message. A valid OAuth2 Bearer token with the **`write`** scope is required.
 
 **Base URL:** `http://localhost:8001`  
 **Gateway URL:** `http://localhost:8090/api/usuarios`
@@ -31,7 +31,7 @@ POST http://localhost:8001/
 ### Body Parameters
 
 <ParamField body="nombre" type="string" required>
-  The user's display name. Must not be blank.
+  The user's display name.
 </ParamField>
 
 <ParamField body="email" type="string" required>
@@ -39,7 +39,7 @@ POST http://localhost:8001/
 </ParamField>
 
 <ParamField body="password" type="string" required>
-  The user's plaintext password. It will be BCrypt-encoded before being written to the database and is **never** returned in any response.
+  The user's plaintext password. It will be BCrypt-encoded before being written to the database. The BCrypt hash is returned in the response body.
 </ParamField>
 
 ---
@@ -48,7 +48,7 @@ POST http://localhost:8001/
 
 ### 201 Created
 
-Returns the newly created `Usuario` object. The `password` field is **not** included in the response.
+Returns the newly created `Usuario` object, including the BCrypt-encoded password hash.
 
 <ResponseField name="id" type="number">
   The auto-generated primary key assigned to the new user.
@@ -62,17 +62,9 @@ Returns the newly created `Usuario` object. The `password` field is **not** incl
   The user's unique email address as provided.
 </ResponseField>
 
-### 400 Bad Request — Validation Errors
-
-Returned when one or more Bean Validation constraints are violated. The body is an object whose keys are the failing field names and whose values describe the error.
-
-```json
-{
-  "nombre": "El campo nombre must not be blank",
-  "email": "El campo email must not be blank",
-  "password": "El campo password must not be blank"
-}
-```
+<ResponseField name="password" type="string">
+  The BCrypt-encoded password hash (e.g. `$2a$10$...`). The original plaintext password is never stored or echoed.
+</ResponseField>
 
 ### 400 Bad Request — Duplicate Email
 
@@ -130,7 +122,8 @@ curl -X POST http://localhost:8090/api/usuarios/ \
 {
   "id": 3,
   "nombre": "Ana García",
-  "email": "ana.garcia@example.com"
+  "email": "ana.garcia@example.com",
+  "password": "$2a$10$Xv3k8qW2mN5pL9oJ1rT6uO7yZ4hB0cD3eF5gH8iJ2kM4nP6qR8sU"
 }
 ```
 
@@ -139,14 +132,5 @@ curl -X POST http://localhost:8090/api/usuarios/ \
 ```json
 {
   "mensaje": "ya existe un usuario con este correo!"
-}
-```
-
-### 400 Response — Validation Errors
-
-```json
-{
-  "password": "El campo password must not be blank",
-  "email": "El campo email must not be blank"
 }
 ```

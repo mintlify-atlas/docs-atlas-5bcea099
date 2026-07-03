@@ -1,10 +1,10 @@
 ---
 title: "GET /usuarios-por-curso — Fetch Users by ID List"
 sidebarTitle: "Users by IDs"
-description: "Returns an array of Usuario objects matching the supplied list of IDs. Used internally by msvc-cursos to populate enrolled students. Requires the OAuth2 read scope."
+description: "Batch-fetches Usuario records by a list of IDs. Called internally by msvc-cursos to hydrate enrolled students. Requires any valid OAuth2 Bearer token."
 ---
 
-Accepts a list of user IDs as a repeated query parameter and returns the matching `Usuario` records as a JSON array. This endpoint is called internally by `msvc-cursos` via OpenFeign whenever course details are fetched and the service needs to hydrate the enrolled-student list with full user objects. It can also be called directly for batch user lookups. A valid OAuth2 Bearer token with the **`read`** scope is required.
+Accepts a list of user IDs as a repeated query parameter and returns the matching `Usuario` records as a JSON array. This endpoint is called internally by `msvc-cursos` via OpenFeign whenever course details are fetched and the service needs to hydrate the enrolled-student list with full user objects. It can also be called directly for batch user lookups. A valid OAuth2 Bearer token is required — the endpoint falls under the `.anyRequest().authenticated()` rule in `SecurityConfig`, meaning any valid JWT grants access regardless of scope.
 
 **Base URL:** `http://localhost:8001`  
 **Gateway URL:** `http://localhost:8090/api/usuarios`
@@ -41,7 +41,7 @@ GET http://localhost:8001/usuarios-por-curso
 
 ### 200 OK
 
-Returns a JSON array of `Usuario` objects whose `id` values match those supplied in the `ids` parameter. The `password` field is **never** included. Users whose IDs are not found are silently omitted from the array.
+Returns a JSON array of `Usuario` objects whose `id` values match those supplied in the `ids` parameter. Users whose IDs are not found are silently omitted from the array.
 
 <ResponseField name="[].id" type="number">
   Auto-generated primary key of the user.
@@ -53,6 +53,10 @@ Returns a JSON array of `Usuario` objects whose `id` values match those supplied
 
 <ResponseField name="[].email" type="string">
   The user's unique email address.
+</ResponseField>
+
+<ResponseField name="[].password" type="string">
+  The BCrypt-encoded password hash stored for the user.
 </ResponseField>
 
 ---
@@ -80,17 +84,20 @@ curl -X GET 'http://localhost:8090/api/usuarios/usuarios-por-curso?ids=1,2,3' \
   {
     "id": 1,
     "nombre": "Ana García",
-    "email": "ana.garcia@example.com"
+    "email": "ana.garcia@example.com",
+    "password": "$2a$10$Xv3k8qW2mN5pL9oJ1rT6uO7yZ4hB0cD3eF5gH8iJ2kM4nP6qR8sU"
   },
   {
     "id": 2,
     "nombre": "Carlos López",
-    "email": "carlos.lopez@example.com"
+    "email": "carlos.lopez@example.com",
+    "password": "$2a$10$Ab1cDe2fGh3iJk4lMn5oPq6rSt7uVw8xYz9aAbBcCdDeEfFgGhHiI"
   },
   {
     "id": 3,
     "nombre": "María Torres",
-    "email": "maria.torres@example.com"
+    "email": "maria.torres@example.com",
+    "password": "$2a$10$Cd2eEf3gHi4jKl5mNo6pQr7sSt8uUv9wWx0xYy1yZz2zA3aBbBcCc"
   }
 ]
 ```
@@ -109,7 +116,8 @@ curl -X GET 'http://localhost:8001/usuarios-por-curso?ids=1,99' \
   {
     "id": 1,
     "nombre": "Ana García",
-    "email": "ana.garcia@example.com"
+    "email": "ana.garcia@example.com",
+    "password": "$2a$10$Xv3k8qW2mN5pL9oJ1rT6uO7yZ4hB0cD3eF5gH8iJ2kM4nP6qR8sU"
   }
 ]
 ```

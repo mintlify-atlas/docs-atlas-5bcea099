@@ -75,7 +75,7 @@ POST http://localhost:8090/api/cursos/crear-usuario/{cursoId}
 **404 Not Found** — Returned when the Feign call to `msvc-usuarios` throws a `FeignException` (e.g. validation failure, duplicate email, service unavailable) or when no course with `cursoId` exists.
 
 <ResponseField name="mensaje" type="string">
-  Error message prefixed with `"No se pudo crear el usuarioo error en la comunicacion: "` followed by the Feign exception message.
+  Error message prefixed with `"No se pudo crear el usuarioo error en la comunicacion: "` followed by the Feign exception message. Note: the string is produced by concatenating `"No se pudo crear el usuario"` and `"o error en la comunicacion: "` in the controller, resulting in a double-o and no space between `usuario` and `o`.
 </ResponseField>
 
 ---

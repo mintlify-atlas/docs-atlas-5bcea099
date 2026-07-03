@@ -1,7 +1,7 @@
 ---
 title: "DELETE /{id} — Delete a User by ID"
 sidebarTitle: "Delete User"
-description: "Permanently removes a Usuario record by ID and removes all course enrollments via a Feign call to msvc-cursos. Requires a Bearer token with the OAuth2 write scope."
+description: "Permanently removes a Usuario by ID. Triggers a Feign call to msvc-cursos to delete all course enrollments for the user. Requires the OAuth2 write scope."
 ---
 
 Permanently deletes the `Usuario` identified by `{id}` from the MySQL database. If the user does not exist, a `404 Not Found` is returned immediately. A valid OAuth2 Bearer token with the **`write`** scope is required.

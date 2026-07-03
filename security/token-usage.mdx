@@ -1,10 +1,10 @@
 ---
-title: "Using Bearer Tokens to Call Protected Endpoints"
+title: "Using Bearer Tokens to Access Protected API Endpoints"
 sidebarTitle: "Token Usage"
 description: "Pass your JWT access_token as a Bearer header to reach msvc-usuarios and msvc-cursos. Scope read covers GETs; scope write covers POST, PUT, and DELETE."
 ---
 
-Once you have an `access_token` from `msvc-auth`, include it as a Bearer token in the `Authorization` header of every protected request. `msvc-usuarios` enforces scope-based authorization using Spring Security's `oauth2ResourceServer` JWT support; `msvc-cursos` requires a valid Bearer token only for the course detail endpoint that fetches enrolled users.
+Once you have an `access_token` from `msvc-auth`, include it as a Bearer token in the `Authorization` header of every protected request. `msvc-usuarios` enforces scope-based authorization using Spring Security's `oauth2ResourceServer` JWT support; `msvc-cursos` requires a valid Bearer token for the course detail endpoint (`GET /{id}`) that fetches enrolled users.
 
 ## Attaching the Token
 
@@ -36,14 +36,14 @@ curl http://localhost:8002/1 \
 
 | Endpoint | Method | Required Scope |
 |---|---|---|
-| `/` (usuarios) | GET | `read` |
-| `/{id}` (usuarios) | GET | `read` |
-| `/` (usuarios) | POST | `write` |
-| `/{id}` (usuarios) | PUT | `write` |
-| `/{id}` (usuarios) | DELETE | `write` |
-| `/usuarios-por-curso` | GET | `read` |
-| `/{id}` (cursos) | GET | Bearer (any valid token) |
-| All other `/cursos` routes | — | No token required |
+| `/` (usuarios) | GET | `SCOPE_read` or `SCOPE_write` |
+| `/{id}` (usuarios) | GET | `SCOPE_read` or `SCOPE_write` |
+| `/` (usuarios) | POST | `SCOPE_write` |
+| `/{id}` (usuarios) | PUT | `SCOPE_write` |
+| `/{id}` (usuarios) | DELETE | `SCOPE_write` |
+| `/usuarios-por-curso` | GET | Any authenticated token |
+| `GET /{id}` (cursos) | GET | Bearer token required (header enforced in controller) |
+| All other `/cursos` routes | — | No `Authorization` header required |
 
 The `SecurityConfig` in `msvc-usuarios` expresses these rules as:
 

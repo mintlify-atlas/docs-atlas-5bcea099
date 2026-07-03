@@ -1,7 +1,7 @@
 ---
-title: "msvc-gateway: Spring Cloud API Gateway"
+title: "msvc-gateway: Spring Cloud API Gateway (Port 8090)"
 sidebarTitle: "msvc-gateway"
-description: "Single entry point on port 8090 using Spring Cloud Gateway MVC. Routes requests to msvc-usuarios and msvc-cursos by path prefix with Kubernetes load balancing."
+description: "Spring Cloud Gateway MVC service on port 8090. Routes /api/usuarios/** and /api/cursos/** to backend services using Kubernetes client-side load balancing."
 ---
 
 `msvc-gateway` is a **Spring Cloud Gateway MVC** service running on **port 8090** that acts as the single entry point for the platform. It inspects the URL path prefix and forwards requests to the appropriate backend microservice — `msvc-usuarios` or `msvc-cursos` — using Kubernetes-native client-side load balancing. No business logic lives in the gateway itself.

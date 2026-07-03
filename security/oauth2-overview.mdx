@@ -1,7 +1,7 @@
 ---
-title: "OAuth2 Authorization Code Flow with JWT"
+title: "OAuth2 Authorization Code Flow and JWT Token Issuance"
 sidebarTitle: "OAuth2 Overview"
-description: "msvc-auth issues JWTs via the Authorization Code grant with refresh token support, PKCE-ready, RSA 2048-bit signing, and openid/read/write scopes."
+description: "msvc-auth issues JWTs via the Authorization Code grant with refresh token support, RSA 2048-bit signing, and openid, read, and write scopes."
 ---
 
 The platform uses the OAuth2 Authorization Code grant (with refresh token support) via Spring Authorization Server. All tokens are signed JWTs using a 2048-bit RSA keypair generated at startup. `msvc-auth` (port 9000) acts as the centralized authorization server; `msvc-usuarios` and `msvc-cursos` are OAuth2 resource servers that validate every inbound Bearer token.
@@ -19,7 +19,7 @@ The registered client is configured in `SecurityConfig` inside `msvc-auth` using
 | Requires consent | Yes |
 | Scopes | `openid`, `read`, `write` |
 
-The redirect URI is driven by the environment variable `LB_AUTH_REDIRECT_URI`, appended with `/authorized`. In a standard local Kubernetes setup this resolves to `http://msvc-usuarios:8001/authorized`.
+The redirect URI is driven by the environment variable `LB_AUTH_REDIRECT_URI`, appended with `/authorized`. In a standard local Kubernetes setup this resolves to `http://192.168.49.2:31415/authorized` (the NodePort value set in `configmap.yaml`).
 
 ```java
 RegisteredClient oidcClient = RegisteredClient.withId(UUID.randomUUID().toString())
@@ -59,7 +59,7 @@ RegisteredClient oidcClient = RegisteredClient.withId(UUID.randomUUID().toString
         ?response_type=code
         &client_id=usuarios-client
         &scope=openid%20read%20write
-        &redirect_uri=http://msvc-usuarios:8001/authorized
+        &redirect_uri=<LB_AUTH_REDIRECT_URI>/authorized
     ```
   </Step>
 
@@ -75,7 +75,7 @@ RegisteredClient oidcClient = RegisteredClient.withId(UUID.randomUUID().toString
     After consent, `msvc-auth` redirects to:
 
     ```
-    http://msvc-usuarios:8001/authorized?code=<authorization_code>
+    <LB_AUTH_REDIRECT_URI>/authorized?code=<authorization_code>
     ```
 
     The `UsuarioController` `/authorized` endpoint simply echoes the code back so it can be exchanged manually or by the client application.
@@ -89,7 +89,7 @@ RegisteredClient oidcClient = RegisteredClient.withId(UUID.randomUUID().toString
       -H 'Authorization: Basic dXN1YXJpb3MtY2xpZW50OjEyMzQ1' \
       -d 'grant_type=authorization_code' \
       -d 'code=<authorization_code>' \
-      -d 'redirect_uri=http://msvc-usuarios:8001/authorized'
+      -d 'redirect_uri=<LB_AUTH_REDIRECT_URI>/authorized'
     ```
 
     The `Authorization` header value `dXN1YXJpb3MtY2xpZW50OjEyMzQ1` is the Base64 encoding of `usuarios-client:12345`.
@@ -121,14 +121,14 @@ GET http://<auth-server>:9000/oauth2/authorize?\
   response_type=code\
   &client_id=usuarios-client\
   &scope=openid%20read%20write\
-  &redirect_uri=http://msvc-usuarios:8001/authorized
+  &redirect_uri=<LB_AUTH_REDIRECT_URI>/authorized
 
 # Step 2 — exchange code for token
 curl -X POST http://<auth-server>:9000/oauth2/token \
   -H 'Authorization: Basic dXN1YXJpb3MtY2xpZW50OjEyMzQ1' \
   -d 'grant_type=authorization_code' \
   -d 'code=<authorization_code>' \
-  -d 'redirect_uri=http://msvc-usuarios:8001/authorized'
+  -d 'redirect_uri=<LB_AUTH_REDIRECT_URI>/authorized'
 ```
 
 ## Refresh Token

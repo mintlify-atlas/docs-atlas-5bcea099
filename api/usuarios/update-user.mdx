@@ -1,10 +1,10 @@
 ---
 title: "PUT /{id} — Update an Existing User Record"
 sidebarTitle: "Update User"
-description: "Replaces the nombre, email, and password of an existing Usuario. Password is re-encoded with BCrypt. Requires a Bearer token with the OAuth2 write scope."
+description: "Full update of a Usuario's nombre, email, and password fields. BCrypt-encodes the new password and returns the hash. Requires the OAuth2 write scope."
 ---
 
-Performs a full replacement of a `Usuario`'s mutable fields (`nombre`, `email`, `password`). All three fields must be supplied — this is not a partial update. The incoming `password` is BCrypt-encoded before being written to the database. If the new `email` differs from the stored one and is already owned by another user, the request is rejected. A valid OAuth2 Bearer token with the **`write`** scope is required.
+Performs a full replacement of a `Usuario`'s mutable fields (`nombre`, `email`, `password`). All three fields must be supplied — this is not a partial update. The incoming `password` is BCrypt-encoded before being written to the database, and the resulting hash is returned in the response. If the new `email` differs from the stored one and is already owned by another user, the request is rejected. A valid OAuth2 Bearer token with the **`write`** scope is required.
 
 **Base URL:** `http://localhost:8001`  
 **Gateway URL:** `http://localhost:8090/api/usuarios`
@@ -37,7 +37,7 @@ PUT http://localhost:8001/{id}
 ### Body Parameters
 
 <ParamField body="nombre" type="string" required>
-  The user's updated display name. Must not be blank.
+  The user's updated display name.
 </ParamField>
 
 <ParamField body="email" type="string" required>
@@ -45,7 +45,7 @@ PUT http://localhost:8001/{id}
 </ParamField>
 
 <ParamField body="password" type="string" required>
-  The user's new plaintext password. It will be BCrypt-encoded before storage and is **never** returned in any response.
+  The user's new plaintext password. It will be BCrypt-encoded before storage. The BCrypt hash is returned in the response body.
 </ParamField>
 
 ---
@@ -54,7 +54,7 @@ PUT http://localhost:8001/{id}
 
 ### 201 Created
 
-Returns the updated `Usuario` object. The `password` field is **not** included in the response.
+Returns the updated `Usuario` object, including the BCrypt-encoded password hash.
 
 <ResponseField name="id" type="number">
   The primary key of the updated user.
@@ -68,16 +68,9 @@ Returns the updated `Usuario` object. The `password` field is **not** included i
   The user's updated email address.
 </ResponseField>
 
-### 400 Bad Request — Validation Errors
-
-Returned when one or more Bean Validation constraints are violated.
-
-```json
-{
-  "nombre": "El campo nombre must not be blank",
-  "email": "El campo email must not be blank"
-}
-```
+<ResponseField name="password" type="string">
+  The BCrypt-encoded password hash (e.g. `$2a$10$...`). The original plaintext password is never stored or echoed.
+</ResponseField>
 
 ### 400 Bad Request — Duplicate Email
 
@@ -139,7 +132,8 @@ curl -X PUT http://localhost:8090/api/usuarios/1 \
 {
   "id": 1,
   "nombre": "Ana García Rodríguez",
-  "email": "ana.garcia@example.com"
+  "email": "ana.garcia@example.com",
+  "password": "$2a$10$Ab1cDe2fGh3iJk4lMn5oPq6rSt7uVw8xYz9aAbBcCdDeEfFgGhHiI"
 }
 ```
 

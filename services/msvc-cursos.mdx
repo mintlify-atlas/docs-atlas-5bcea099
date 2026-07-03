@@ -1,5 +1,5 @@
 ---
-title: "msvc-cursos: Course Management REST API"
+title: "msvc-cursos: Course Management Service (Port 8002)"
 sidebarTitle: "msvc-cursos"
 description: "REST API for course CRUD and user enrollment on port 8002. Backed by PostgreSQL 14, uses OpenFeign to communicate with msvc-usuarios for user data."
 ---
@@ -100,7 +100,7 @@ public class CursoUsuario {
 
 ## Inter-Service Communication
 
-`msvc-cursos` uses **Spring Cloud OpenFeign** to communicate with `msvc-usuarios`. The Feign client is configured to call the service at the URL resolved from the `USUARIOS_URL` environment variable.
+`msvc-cursos` uses **Spring Cloud OpenFeign** to communicate with `msvc-usuarios`. The Feign client resolves the target service name via Spring Cloud Kubernetes discovery.
 
 For the `GET /{id}` endpoint, the JWT bearer token from the incoming `Authorization` header is extracted from the request context and forwarded in the outbound Feign call to `msvc-usuarios`. This ensures that user data can only be retrieved by callers who hold a valid token with the appropriate scope.
 
@@ -130,7 +130,6 @@ public ResponseEntity<?> detalle(
 | `DB_DATABASE` | Database name | `msvc_cursos` |
 | `DB_USERNAME` | Database user | `postgres` |
 | `DB_PASSWORD` | Database password | `postgres123` |
-| `USUARIOS_URL` | Base URL for the `msvc-usuarios` Feign client | `msvc-usuarios:8001` |
 
 ## Dockerfile
 

@@ -1,7 +1,7 @@
 ---
 title: "GET /login — Look Up a User by Email Address"
 sidebarTitle: "Login by Email"
-description: "Retrieves a Usuario record by email, including the BCrypt password hash. Intended exclusively for internal use by msvc-auth. Returns 404 when the email is not found."
+description: "Retrieves a Usuario record by email address, including the BCrypt password hash. Used internally by msvc-auth. Returns 404 when the email is not found."
 ---
 
 Looks up a `Usuario` by their email address and returns the full record — including the BCrypt-encoded `password` hash. This endpoint is designed for exclusive use by the `msvc-auth` authorization server, which calls it during the OAuth2 token-issuance flow to retrieve the stored credential for password verification. No OAuth2 token is required to call this endpoint.
@@ -60,7 +60,7 @@ Returns the full `Usuario` object, **including** the BCrypt-encoded `password` h
 </ResponseField>
 
 <ResponseField name="password" type="string">
-  The BCrypt-encoded password hash (e.g. `$2a$10$...`). Present **only** in this endpoint's response — all other endpoints omit this field.
+  The BCrypt-encoded password hash (e.g. `$2a$10$...`). The original plaintext password is never stored or returned.
 </ResponseField>
 
 ### 404 Not Found

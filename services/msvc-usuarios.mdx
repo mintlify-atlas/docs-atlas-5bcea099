@@ -1,5 +1,5 @@
 ---
-title: "msvc-usuarios: User Management REST API"
+title: "msvc-usuarios: User Management Service (Port 8001)"
 sidebarTitle: "msvc-usuarios"
 description: "REST API for user CRUD on port 8001. Backed by MySQL 8, BCrypt password hashing, and OAuth2 Resource Server validating JWT tokens issued by msvc-auth."
 ---
@@ -154,7 +154,6 @@ management.health.readinessstate.enabled=true
 | `DB_DATABASE` | Database name | `msvc_usuarios` |
 | `DB_USERNAME` | Database user | `root` |
 | `DB_PASSWORD` | Database password | `admin123` |
-| `CURSOS_URL` | URL for `msvc-cursos` (used by internal integrations) | `msvc-cursos:8002` |
 | `LB_AUTH_ISSUER_URI` | OAuth2 issuer URI for JWT validation | `http://127.0.0.1:9000` |
 
 ## Dockerfile

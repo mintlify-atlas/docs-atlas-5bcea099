@@ -1,5 +1,5 @@
 ---
-title: "DELETE /eliminar-usuario/{cursoId} — Unenroll User from Course"
+title: "Unenroll User from Course — DELETE /eliminar-usuario"
 sidebarTitle: "Unenroll User"
 description: "Removes a user's CursoUsuario enrollment record from a course. The user in msvc-usuarios is NOT deleted. Returns the unenrolled Usuario on HTTP 201."
 ---
@@ -67,7 +67,7 @@ DELETE http://localhost:8090/api/cursos/eliminar-usuario/{cursoId}
 **404 Not Found** — Returned when the Feign call to `msvc-usuarios` throws a `FeignException` (user not found or service unreachable), or when no course with `cursoId` exists.
 
 <ResponseField name="mensaje" type="string">
-  Error message prefixed with `"No se pudo eliminar el usuarioo error en la comunicacion: "` followed by the Feign exception message.
+  Error message prefixed with `"No se pudo eliminar el usuarioo error en la comunicacion: "` followed by the Feign exception message. Note: the string is produced by concatenating `"No se pudo eliminar el usuario"` and `"o error en la comunicacion: "` in the controller, resulting in a double-o and no space between `usuario` and `o`.
 </ResponseField>
 
 ---

@@ -1,7 +1,7 @@
 ---
-title: "Kubernetes Manifests Reference for All Services"
+title: "Kubernetes Manifests Reference: All Service Resources"
 sidebarTitle: "K8s Manifests"
-description: "Reference for every Kubernetes manifest in the repository: what each file deploys, ConfigMap and Secret configuration, resource limits, and RBAC requirements."
+description: "Reference for every Kubernetes manifest: what each file deploys, ConfigMap keys, Secret structure, resource limits, and RBAC setup."
 ---
 
 The repository ships all Kubernetes manifests needed to run the complete platform — storage, databases, application services, configuration, autoscaling, and ingress. This page describes each manifest file, its Kubernetes `kind`, and the role it plays in the deployment.
@@ -10,9 +10,9 @@ The repository ships all Kubernetes manifests needed to run the complete platfor
 
 | File | Kind | Purpose |
 |---|---|---|
-| `mysql-pv.yaml` | PersistentVolume | 2 Gi host-path volume for MySQL data at `/data/mysql` |
+| `mysql-pv.yaml` | PersistentVolume | 2Gi host-path volume for MySQL data at `/data/mysql` |
 | `mysql-pvc.yaml` | PersistentVolumeClaim | Claims the `mysql-pv` volume for the MySQL pod |
-| `postgres-pv.yaml` | PersistentVolume | 2 Gi host-path volume for PostgreSQL data at `/data/postgres` |
+| `postgres-pv.yaml` | PersistentVolume | 2Gi host-path volume for PostgreSQL data at `/data/postgres` |
 | `postgres-pvc.yaml` | PersistentVolumeClaim | Claims storage for the PostgreSQL pod |
 | `deployment-mysql.yaml` | Deployment | MySQL 8.0 pod — creates the `msvc_usuarios` database |
 | `svc-mysql.yaml` | Service | ClusterIP service `mysql8` on port 3306 |

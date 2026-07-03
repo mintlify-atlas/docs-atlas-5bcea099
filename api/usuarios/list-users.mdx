@@ -1,10 +1,10 @@
 ---
 title: "GET / — List All Users in msvc-usuarios"
 sidebarTitle: "List Users"
-description: "Returns all registered users alongside Kubernetes pod metadata and a ConfigMap text value. Requires a Bearer token with the OAuth2 read scope."
+description: "Returns all registered users with Kubernetes pod metadata and a ConfigMap text value. Requires a Bearer token with the OAuth2 read or write scope."
 ---
 
-Fetches every `Usuario` record stored in the MySQL database and wraps the result in a JSON envelope that also exposes the Kubernetes pod name/IP (useful for debugging load-balanced deployments) and a runtime text value injected from the `config.texto` ConfigMap key. A valid OAuth2 Bearer token with the **`read`** scope must be included in the request.
+Fetches every `Usuario` record stored in the MySQL database and wraps the result in a JSON envelope that also exposes the Kubernetes pod name/IP (useful for debugging load-balanced deployments) and a runtime text value injected from the `config.texto` ConfigMap key. A valid OAuth2 Bearer token with either the **`read`** or **`write`** scope must be included in the request.
 
 **Base URL:** `http://localhost:8001`  
 **Gateway URL:** `http://localhost:8090/api/usuarios`
@@ -39,7 +39,7 @@ No path parameters or query parameters are accepted by this endpoint.
 Returns a JSON object with three top-level keys.
 
 <ResponseField name="users" type="array" required>
-  Array of all `Usuario` objects in the database. Each element contains the user's `id`, `nombre`, and `email`. The `password` field is **never** included in any list or detail response.
+  Array of all `Usuario` objects in the database.
 
   <Expandable title="Usuario object">
     <ResponseField name="id" type="number">
@@ -50,6 +50,9 @@ Returns a JSON object with three top-level keys.
     </ResponseField>
     <ResponseField name="email" type="string">
       The user's unique email address.
+    </ResponseField>
+    <ResponseField name="password" type="string">
+      The BCrypt-encoded password hash stored for the user.
     </ResponseField>
   </Expandable>
 </ResponseField>
@@ -89,12 +92,14 @@ curl -X GET http://localhost:8090/api/usuarios/ \
     {
       "id": 1,
       "nombre": "Ana García",
-      "email": "ana.garcia@example.com"
+      "email": "ana.garcia@example.com",
+      "password": "$2a$10$Xv3k8qW2mN5pL9oJ1rT6uO7yZ4hB0cD3eF5gH8iJ2kM4nP6qR8sU"
     },
     {
       "id": 2,
       "nombre": "Carlos López",
-      "email": "carlos.lopez@example.com"
+      "email": "carlos.lopez@example.com",
+      "password": "$2a$10$Ab1cDe2fGh3iJk4lMn5oPq6rSt7uVw8xYz9aAbBcCdDeEfFgGhHiI"
     }
   ],
   "pod_info": "msvc-usuarios-6d9b7f-xkp2r: 10.244.1.15",
