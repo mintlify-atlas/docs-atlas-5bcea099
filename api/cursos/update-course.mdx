@@ -1,0 +1,110 @@
+---
+title: "PUT /{id} — Update Course Name"
+sidebarTitle: "Update Course"
+description: "Updates the `nombre` field of an existing course by ID. Returns the updated Curso with HTTP 201, or 404 if the course does not exist."
+---
+
+Updates the `nombre` of an existing `Curso`. The service layer looks up the course by `id`, applies the new `nombre` from the request body, and persists the change. Only the `nombre` field is overwritten — enrollment records (`cursoUsuarios`) are never modified by this operation and must be managed through the dedicated enrollment endpoints.
+
+No authentication is required for this endpoint.
+
+## Endpoint
+
+```
+PUT http://localhost:8002/{id}
+```
+
+**Via API Gateway:**
+
+```
+PUT http://localhost:8090/api/cursos/{id}
+```
+
+---
+
+## Path Parameters
+
+<ParamField path="id" type="number" required>
+  The primary key of the course to update.
+</ParamField>
+
+---
+
+## Request Body
+
+`Content-Type: application/json`
+
+<ParamField body="nombre" type="string" required>
+  The new name for the course.
+</ParamField>
+
+---
+
+## Response
+
+**201 Created** — The updated `Curso` object.
+
+<ResponseField name="id" type="number">
+  Primary key of the course (unchanged).
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  The updated course name.
+</ResponseField>
+
+<ResponseField name="cursoUsuarios" type="array">
+  Existing enrollment junction records, unchanged by this operation.
+</ResponseField>
+
+<ResponseField name="cursoUsuarios[].id" type="number">
+  Primary key of the `CursoUsuario` junction record.
+</ResponseField>
+
+<ResponseField name="cursoUsuarios[].usuarioId" type="number">
+  The ID of the enrolled user.
+</ResponseField>
+
+<ResponseField name="usuarios" type="array">
+  Always an empty array (transient field, not populated in this response).
+</ResponseField>
+
+---
+
+**404 Not Found** — Returned when no course with the given `id` exists in the database.
+
+---
+
+## Examples
+
+### Request
+
+```bash
+curl -X PUT http://localhost:8002/1 \
+  -H "Content-Type: application/json" \
+  -d '{"nombre":"Spring Boot 3 Advanced"}'
+```
+
+### Response — 201 Created
+
+```json
+{
+  "id": 1,
+  "nombre": "Spring Boot 3 Advanced",
+  "cursoUsuarios": [
+    { "id": 1, "usuarioId": 3 }
+  ],
+  "usuarios": []
+}
+```
+
+### Response — 404 Not Found
+
+```json
+(empty body)
+```
+
+---
+
+<Note>
+  The response uses **HTTP 201** (not 200) for a successful update — this matches the controller's `ResponseEntity.status(HttpStatus.CREATED)` return. Only `nombre` is writable; enrollment data is managed via [PUT /asignar-usuario/\{cursoId\}](/api/cursos/enroll-user) and [DELETE /eliminar-usuario/\{cursoId\}](/api/cursos/unenroll-user).
+</Note>

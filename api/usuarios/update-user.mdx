@@ -1,0 +1,159 @@
+---
+title: "PUT /{id} — Update an Existing User Record"
+sidebarTitle: "Update User"
+description: "Replaces the nombre, email, and password of an existing Usuario. Password is re-encoded with BCrypt. Requires a Bearer token with the OAuth2 write scope."
+---
+
+Performs a full replacement of a `Usuario`'s mutable fields (`nombre`, `email`, `password`). All three fields must be supplied — this is not a partial update. The incoming `password` is BCrypt-encoded before being written to the database. If the new `email` differs from the stored one and is already owned by another user, the request is rejected. A valid OAuth2 Bearer token with the **`write`** scope is required.
+
+**Base URL:** `http://localhost:8001`  
+**Gateway URL:** `http://localhost:8090/api/usuarios`
+
+---
+
+## Endpoint
+
+```
+PUT http://localhost:8001/{id}
+```
+
+---
+
+## Request
+
+### Headers
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <access_token>` |
+| `Content-Type` | `application/json` |
+
+### Path Parameters
+
+<ParamField path="id" type="Long" required>
+  The numeric primary key of the user to update. Must be a positive integer.
+</ParamField>
+
+### Body Parameters
+
+<ParamField body="nombre" type="string" required>
+  The user's updated display name. Must not be blank.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  The user's updated email address. Must be unique. If the value differs from the currently stored email and is already registered to another user, a `400` is returned.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The user's new plaintext password. It will be BCrypt-encoded before storage and is **never** returned in any response.
+</ParamField>
+
+---
+
+## Response
+
+### 201 Created
+
+Returns the updated `Usuario` object. The `password` field is **not** included in the response.
+
+<ResponseField name="id" type="number">
+  The primary key of the updated user.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  The user's updated display name.
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  The user's updated email address.
+</ResponseField>
+
+### 400 Bad Request — Validation Errors
+
+Returned when one or more Bean Validation constraints are violated.
+
+```json
+{
+  "nombre": "El campo nombre must not be blank",
+  "email": "El campo email must not be blank"
+}
+```
+
+### 400 Bad Request — Duplicate Email
+
+Returned when the new `email` is already registered to a different user.
+
+```json
+{
+  "mensaje": "ya existe un usuario con este correo!"
+}
+```
+
+### 404 Not Found
+
+Returned when no user exists for the provided `id`. The response body is empty.
+
+---
+
+## Example
+
+### Request
+
+```bash
+curl -X PUT http://localhost:8001/1 \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombre": "Ana García Rodríguez",
+    "email": "ana.garcia@example.com",
+    "password": "n3wP@ssw0rd"
+  }'
+```
+
+Via the API Gateway:
+
+```bash
+curl -X PUT http://localhost:8090/api/usuarios/1 \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombre": "Ana García Rodríguez",
+    "email": "ana.garcia@example.com",
+    "password": "n3wP@ssw0rd"
+  }'
+```
+
+### Request Body
+
+```json
+{
+  "nombre": "Ana García Rodríguez",
+  "email": "ana.garcia@example.com",
+  "password": "n3wP@ssw0rd"
+}
+```
+
+### 201 Response
+
+```json
+{
+  "id": 1,
+  "nombre": "Ana García Rodríguez",
+  "email": "ana.garcia@example.com"
+}
+```
+
+### 400 Response — Duplicate Email
+
+```json
+{
+  "mensaje": "ya existe un usuario con este correo!"
+}
+```
+
+### 404 Response
+
+```
+HTTP/1.1 404 Not Found
+(empty body)
+```

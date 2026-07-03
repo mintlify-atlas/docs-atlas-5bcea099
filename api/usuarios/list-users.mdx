@@ -1,0 +1,103 @@
+---
+title: "GET / — List All Users in msvc-usuarios"
+sidebarTitle: "List Users"
+description: "Returns all registered users alongside Kubernetes pod metadata and a ConfigMap text value. Requires a Bearer token with the OAuth2 read scope."
+---
+
+Fetches every `Usuario` record stored in the MySQL database and wraps the result in a JSON envelope that also exposes the Kubernetes pod name/IP (useful for debugging load-balanced deployments) and a runtime text value injected from the `config.texto` ConfigMap key. A valid OAuth2 Bearer token with the **`read`** scope must be included in the request.
+
+**Base URL:** `http://localhost:8001`  
+**Gateway URL:** `http://localhost:8090/api/usuarios`
+
+---
+
+## Endpoint
+
+```
+GET http://localhost:8001/
+```
+
+---
+
+## Request
+
+### Headers
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <access_token>` |
+| `Content-Type` | `application/json` |
+
+No path parameters or query parameters are accepted by this endpoint.
+
+---
+
+## Response
+
+### 200 OK
+
+Returns a JSON object with three top-level keys.
+
+<ResponseField name="users" type="array" required>
+  Array of all `Usuario` objects in the database. Each element contains the user's `id`, `nombre`, and `email`. The `password` field is **never** included in any list or detail response.
+
+  <Expandable title="Usuario object">
+    <ResponseField name="id" type="number">
+      Auto-generated primary key.
+    </ResponseField>
+    <ResponseField name="nombre" type="string">
+      The user's display name.
+    </ResponseField>
+    <ResponseField name="email" type="string">
+      The user's unique email address.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="pod_info" type="string">
+  A string in the format `"podname: podip"` sourced from the `MY_POD_NAME` and `MY_POD_IP` environment variables injected by Kubernetes. Returns `"null: null"` when running outside a Kubernetes cluster.
+</ResponseField>
+
+<ResponseField name="texto" type="string">
+  A runtime text value read from the `config.texto` key in the mounted ConfigMap. Useful for verifying live config reloads.
+</ResponseField>
+
+---
+
+## Example
+
+### Request
+
+```bash
+curl -X GET http://localhost:8001/ \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json"
+```
+
+Via the API Gateway:
+
+```bash
+curl -X GET http://localhost:8090/api/usuarios/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### Response
+
+```json
+{
+  "users": [
+    {
+      "id": 1,
+      "nombre": "Ana García",
+      "email": "ana.garcia@example.com"
+    },
+    {
+      "id": 2,
+      "nombre": "Carlos López",
+      "email": "carlos.lopez@example.com"
+    }
+  ],
+  "pod_info": "msvc-usuarios-6d9b7f-xkp2r: 10.244.1.15",
+  "texto": "Bienvenidos al microservicio de usuarios"
+}
+```

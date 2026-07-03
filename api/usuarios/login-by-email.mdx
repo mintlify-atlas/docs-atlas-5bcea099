@@ -1,0 +1,97 @@
+---
+title: "GET /login — Look Up a User by Email Address"
+sidebarTitle: "Login by Email"
+description: "Retrieves a Usuario record by email, including the BCrypt password hash. Intended exclusively for internal use by msvc-auth. Returns 404 when the email is not found."
+---
+
+Looks up a `Usuario` by their email address and returns the full record — including the BCrypt-encoded `password` hash. This endpoint is designed for exclusive use by the `msvc-auth` authorization server, which calls it during the OAuth2 token-issuance flow to retrieve the stored credential for password verification. No OAuth2 token is required to call this endpoint.
+
+<Warning>
+  This endpoint is intended for **internal use by `msvc-auth` only**. It returns the BCrypt-hashed password in the response body, which is required for credential verification during authentication. **Do not expose this endpoint publicly in production.** Restrict access using network policies, a service mesh, or API Gateway route rules so that only `msvc-auth` can reach it.
+</Warning>
+
+**Base URL:** `http://localhost:8001`  
+**Gateway URL:** `http://localhost:8090/api/usuarios` *(should not be publicly routed)*
+
+---
+
+## Endpoint
+
+```
+GET http://localhost:8001/login
+```
+
+---
+
+## Request
+
+### Headers
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/json` |
+
+No OAuth2 Bearer token is required.
+
+### Query Parameters
+
+<ParamField query="email" type="string" required>
+  The email address of the user to look up. Must exactly match a stored email (case-sensitive comparison at the database level).
+</ParamField>
+
+---
+
+## Response
+
+### 200 OK
+
+Returns the full `Usuario` object, **including** the BCrypt-encoded `password` hash. This value is consumed by `msvc-auth` to verify the user's submitted plaintext password.
+
+<ResponseField name="id" type="number">
+  The auto-generated primary key of the user.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  The user's display name.
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  The user's unique email address.
+</ResponseField>
+
+<ResponseField name="password" type="string">
+  The BCrypt-encoded password hash (e.g. `$2a$10$...`). Present **only** in this endpoint's response — all other endpoints omit this field.
+</ResponseField>
+
+### 404 Not Found
+
+Returned when no user is registered with the provided `email`. The response body is empty.
+
+---
+
+## Example
+
+### Request
+
+```bash
+curl -X GET 'http://localhost:8001/login?email=ana.garcia@example.com' \
+  -H "Content-Type: application/json"
+```
+
+### 200 Response
+
+```json
+{
+  "id": 1,
+  "nombre": "Ana García",
+  "email": "ana.garcia@example.com",
+  "password": "$2a$10$Xv3k8qW2mN5pL9oJ1rT6uO7yZ4hB0cD3eF5gH8iJ2kM4nP6qR8sU"
+}
+```
+
+### 404 Response
+
+```
+HTTP/1.1 404 Not Found
+(empty body)
+```

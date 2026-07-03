@@ -1,0 +1,173 @@
+---
+title: "Environment Variable Reference for All Services"
+sidebarTitle: "Env Variables"
+description: "Complete reference of every environment variable for msvc-auth, msvc-usuarios, msvc-cursos, and msvc-gateway, with defaults sourced from application.properties."
+---
+
+Each microservice is configured entirely through environment variables. This page documents every variable, its default value (sourced directly from each service's `application.properties`), and where it is used.
+
+<Tip>
+  In Kubernetes, variables are injected via a **ConfigMap** (e.g., `msvc-usuarios`, `msvc-cursos`) and a **Secret** (e.g., `msvc-usuarios`, `msvc-cursos`). In Docker Compose, use `.env` files referenced by the `env_file` key in `docker-compose.yml`.
+</Tip>
+
+---
+
+## msvc-auth (port 9000)
+
+`msvc-auth` has no database. Its `application.properties` only sets the application name and port — every other value must be provided at runtime. In Kubernetes these values are pulled from the `msvc-usuarios` ConfigMap (both services share the same ConfigMap for auth-related URIs).
+
+| Variable | Description | Default | Required |
+|---|---|---|---|
+| `LB_AUTH_REDIRECT_URI` | Base URL used as the OAuth2 `redirect_uri` parameter (e.g., `http://192.168.49.2:31415`) | — | Yes |
+| `LB_USUARIOS_URI` | Base URL of `msvc-usuarios` used by the WebClient to look up user credentials during the authorization flow | — | Yes |
+
+---
+
+## msvc-usuarios (port 8001)
+
+MySQL-backed user service and OAuth2 resource server. In Kubernetes, non-sensitive variables are read from the `msvc-usuarios` ConfigMap and sensitive credentials from the `msvc-usuarios` Secret. The pod name and IP are injected automatically by the Kubernetes Downward API.
+
+| Variable | Description | Default |
+|---|---|---|
+| `PORT` | HTTP server listen port | `8001` |
+| `DB_HOT` | MySQL host and port used in the JDBC URL | `mysql8:3306` |
+| `DB_DATABASE` | MySQL database (schema) name | `msvc_usuarios` |
+| `DB_USERNAME` | MySQL login user | `root` |
+| `DB_PASSWORD` | MySQL login password | `admin123` |
+| `CURSOS_URL` | Base host:port of `msvc-cursos` used by the OpenFeign client | `msvc-cursos:8002` |
+| `LB_AUTH_ISSUER_URI` | OAuth2 issuer URI for JWT validation (`spring.security.oauth2.resourceserver.jwt.issuer-uri`) | `http://127.0.0.1:9000` |
+| `LB_AUTH_REDIRECT_URI` | OAuth2 redirect URI; injected from ConfigMap in Kubernetes | — |
+| `MY_POD_NAME` | Kubernetes pod name injected by the Downward API (`metadata.name`) | — |
+| `MY_POD_IP` | Kubernetes pod IP injected by the Downward API (`status.podIP`) | — |
+| `SPRING_PROFILES_ACTIVE` | Active Spring profiles; Kubernetes sets this to `kubernetes,dev,elk` | `dev` |
+| `LOGSTASH_HOST` | IP or hostname of the Logstash TCP input for log shipping | — |
+| `config.texto` | Custom text value served in the list-users response; injected from the `msvc-usuarios-config` ConfigMap by Spring Cloud Kubernetes | — |
+
+### ConfigMap: `msvc-usuarios-config`
+
+`msvc-usuarios` also reads from a dedicated Spring Cloud Kubernetes ConfigMap named `msvc-usuarios-config`. This ConfigMap injects profile-specific `config.texto` values via `spring.cloud.kubernetes.config.name=msvc-usuarios-config`:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: msvc-usuarios-config
+data:
+  application.yaml: |
+    config:
+      texto: "configuracion ambiente por defecto"
+    ---
+    spring:
+      config:
+        activate:
+          on-profile: dev
+    config:
+      texto: "configuracion ambiente de desarrollo"
+    ---
+    spring:
+      config:
+        activate:
+          on-profile: prod
+    config:
+      texto: "configuracion ambiente de produccion"
+```
+
+---
+
+## msvc-cursos (port 8002)
+
+PostgreSQL-backed courses service. Non-sensitive variables come from the `msvc-cursos` ConfigMap and database credentials from the `msvc-cursos` Secret.
+
+| Variable | Description | Default |
+|---|---|---|
+| `PORT` | HTTP server listen port | `8002` |
+| `DB_HOST` | PostgreSQL host and port used in the JDBC URL | `postgres-cursos:5432` |
+| `DB_DATABASE` | PostgreSQL database name | `msvc_cursos` |
+| `DB_USERNAME` | PostgreSQL login user | `postgres` |
+| `DB_PASSWORD` | PostgreSQL login password | `postgres123` |
+| `USUARIOS_URL` | Base host:port of `msvc-usuarios` used by the OpenFeign client | `msvc-usuarios:8001` |
+| `SPRING_PROFILES_ACTIVE` | Active Spring profiles; Kubernetes sets this to `kubernetes,elk` | — |
+| `LOGSTASH_HOST` | IP or hostname of the Logstash TCP input for log shipping | — |
+
+---
+
+## msvc-gateway (port 8090)
+
+`msvc-gateway` has no database and requires no credentials. It relies entirely on Spring Cloud Kubernetes service discovery to resolve `lb://msvc-usuarios` and `lb://msvc-cursos` URIs at runtime. Its `application.properties` only declares the application name and port. The Kubernetes deployment does not inject any extra environment variables beyond what Spring Cloud Kubernetes provides automatically.
+
+| Variable | Description | Default |
+|---|---|---|
+| `server.port` | HTTP server listen port (property name; not typically overridden) | `8090` |
+
+---
+
+## Kubernetes ConfigMaps and Secrets
+
+### ConfigMap structure
+
+Two ConfigMaps — `msvc-usuarios` and `msvc-cursos` — hold all non-sensitive variables. They are created from `configmap.yaml` before the microservice Deployments are applied:
+
+```yaml
+# configmap.yaml (msvc-usuarios entries)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: msvc-usuarios
+data:
+  PORT: "8001"
+  DB_HOT: "mysql8:3306"
+  DB_DATABASE: "msvc_usuarios"
+  CURSOS_URL: "msvc-cursos:8002"
+  LB_AUTH_ISSUER_URI: "http://192.168.49.2:30794"
+  LB_AUTH_REDIRECT_URI: "http://192.168.49.2:31415"
+  LB_USUARIOS_URI: "http://192.168.49.2:31415"
+```
+
+```yaml
+# configmap.yaml (msvc-cursos entries)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: msvc-cursos
+data:
+  PORT: "8002"
+  DB_HOST: "postgres14:5432"
+  DB_DATABASE: "msvc_cursos"
+  USUARIOS_URL: "msvc-usuarios:8001"
+```
+
+### Secret structure
+
+Database credentials are stored as Base64-encoded Opaque Secrets in `secret.yaml` and mounted into deployments via `secretKeyRef`:
+
+```yaml
+# secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: msvc-usuarios
+type: Opaque
+data:
+  DB_USERNAME: cm9vdA==       # root
+  DB_PASSWORD: YWRtaW4xMjM=   # admin123
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: msvc-cursos
+type: Opaque
+data:
+  DB_USERNAME: cG9zdGdyZXM=   # postgres
+  DB_PASSWORD: YWRtaW4xMjM=   # admin123
+```
+
+Apply the ConfigMap and Secret before deploying any microservice:
+
+```bash
+kubectl apply -f configmap.yaml
+kubectl apply -f secret.yaml
+```
+
+<Warning>
+  The default credentials (`admin123`, `postgres123`) are for **local development only**. You must override all passwords in production via Kubernetes Secrets. Never commit plaintext credentials to your repository. See [Kubernetes Manifests](/deployment/kubernetes-manifests) for the full production deployment guide.
+</Warning>

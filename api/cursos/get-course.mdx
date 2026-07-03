@@ -1,0 +1,137 @@
+---
+title: "GET /{id} — Get Course with Enrolled Users"
+sidebarTitle: "Get Course"
+description: "Fetches a single course by ID and populates the `usuarios` array by calling msvc-usuarios via OpenFeign. A Bearer token is required."
+---
+
+Retrieves a single `Curso` by its primary key. In addition to the base course data, this endpoint resolves the full `Usuario` objects for every enrolled user by forwarding the request's `Authorization` header to `msvc-usuarios` via an OpenFeign call to `GET /usuarios-por-curso`. The populated `usuarios` array is returned in the response alongside the raw `cursoUsuarios` junction entries.
+
+**Authentication required.** The `Authorization` header must be present and will be forwarded to `msvc-usuarios` to authenticate the downstream user-lookup call.
+
+## Endpoint
+
+```
+GET http://localhost:8002/{id}
+```
+
+**Via API Gateway:**
+
+```
+GET http://localhost:8090/api/cursos/{id}
+```
+
+---
+
+## Path Parameters
+
+<ParamField path="id" type="number" required>
+  The primary key (`id`) of the course to retrieve.
+</ParamField>
+
+---
+
+## Request Headers
+
+| Header          | Required | Description                                                                         |
+| --------------- | -------- | ----------------------------------------------------------------------------------- |
+| `Authorization` | Yes      | Bearer token forwarded to `msvc-usuarios` when fetching enrolled user details.      |
+
+---
+
+## Response
+
+**200 OK** — The `Curso` object with the `usuarios` array populated.
+
+<ResponseField name="id" type="number">
+  Primary key of the course.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  Name of the course.
+</ResponseField>
+
+<ResponseField name="cursoUsuarios" type="array">
+  Raw junction records from the `cursos_usuarios` table.
+</ResponseField>
+
+<ResponseField name="cursoUsuarios[].id" type="number">
+  Primary key of the `CursoUsuario` junction record.
+</ResponseField>
+
+<ResponseField name="cursoUsuarios[].usuarioId" type="number">
+  The ID of the enrolled user as stored in `msvc-usuarios`.
+</ResponseField>
+
+<ResponseField name="usuarios" type="array">
+  Full `Usuario` objects fetched from `msvc-usuarios` that correspond to each `cursoUsuarios` entry. Empty if the course has no enrollments.
+</ResponseField>
+
+<ResponseField name="usuarios[].id" type="number">
+  Primary key of the user in `msvc-usuarios`.
+</ResponseField>
+
+<ResponseField name="usuarios[].nombre" type="string">
+  Full name of the user.
+</ResponseField>
+
+<ResponseField name="usuarios[].email" type="string">
+  Email address of the user.
+</ResponseField>
+
+<ResponseField name="usuarios[].password" type="string">
+  Hashed password of the user as stored in `msvc-usuarios`.
+</ResponseField>
+
+---
+
+**404 Not Found** — Returned when no course with the given `id` exists.
+
+---
+
+## Examples
+
+### Request
+
+```bash
+curl http://localhost:8002/1 \
+  -H "Authorization: Bearer <your-token>"
+```
+
+### Response — 200 OK
+
+```json
+{
+  "id": 1,
+  "nombre": "Spring Boot 3",
+  "cursoUsuarios": [
+    { "id": 1, "usuarioId": 3 },
+    { "id": 2, "usuarioId": 7 }
+  ],
+  "usuarios": [
+    {
+      "id": 3,
+      "nombre": "Carlos López",
+      "email": "carlos@example.com",
+      "password": "$2a$10$hashed..."
+    },
+    {
+      "id": 7,
+      "nombre": "Ana Martínez",
+      "email": "ana@example.com",
+      "password": "$2a$10$hashed..."
+    }
+  ]
+}
+```
+
+### Response — 404 Not Found
+
+```json
+(empty body)
+```
+
+---
+
+<Note>
+  The `Authorization` header is mandatory. The controller declares `@RequestHeader(value = "Authorization", required = true)`, so requests without this header will be rejected by Spring before reaching the service layer. The same token is forwarded verbatim to `msvc-usuarios` via the Feign client's `obtenerAlumnosPorCurso` call.
+</Note>

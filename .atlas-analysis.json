@@ -1,0 +1,133 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "Spring Cloud Microservices",
+  "projectDescription": "A production-ready microservices platform built with Spring Boot 3.5, Spring Cloud 2025, OAuth2/JWT authentication, and full Kubernetes deployment support for managing users and courses.",
+  "theme": "aspen",
+  "primaryColor": "#1E6B4F",
+  "lightColor": "#D1FAE5",
+  "darkColor": "#0F3D2C",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Overview",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Microservices",
+            "pages": [
+              "services/msvc-auth",
+              "services/msvc-usuarios",
+              "services/msvc-cursos",
+              "services/msvc-gateway"
+            ]
+          },
+          {
+            "group": "Security",
+            "pages": [
+              "security/oauth2-overview",
+              "security/token-usage"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Deployment",
+        "groups": [
+          {
+            "group": "Local Development",
+            "pages": [
+              "deployment/docker-compose",
+              "deployment/environment-variables"
+            ]
+          },
+          {
+            "group": "Kubernetes",
+            "pages": [
+              "deployment/kubernetes-setup",
+              "deployment/kubernetes-manifests",
+              "deployment/autoscaling-ingress"
+            ]
+          },
+          {
+            "group": "Observability",
+            "pages": [
+              "deployment/elk-stack",
+              "deployment/health-actuator"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Users API",
+            "pages": [
+              "api/usuarios/list-users",
+              "api/usuarios/get-user",
+              "api/usuarios/create-user",
+              "api/usuarios/update-user",
+              "api/usuarios/delete-user",
+              "api/usuarios/users-by-ids",
+              "api/usuarios/login-by-email"
+            ]
+          },
+          {
+            "group": "Courses API",
+            "pages": [
+              "api/cursos/list-courses",
+              "api/cursos/get-course",
+              "api/cursos/create-course",
+              "api/cursos/update-course",
+              "api/cursos/delete-course",
+              "api/cursos/enroll-user",
+              "api/cursos/create-enroll-user",
+              "api/cursos/unenroll-user"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "OAuth2 Authorization Code flow with JWT token issuance via msvc-auth",
+    "User management REST API backed by MySQL 8 with BCrypt password hashing",
+    "Course management REST API backed by PostgreSQL 14 with user enrollment",
+    "Spring Cloud Gateway routing all traffic through a single entry point on port 8090",
+    "Service-to-service communication via OpenFeign with Kubernetes load balancing",
+    "Kubernetes-native service discovery (Spring Cloud Kubernetes)",
+    "Horizontal Pod Autoscaler scaling up to 5 replicas at 50% CPU utilization",
+    "NGINX Ingress with rate limiting (10 RPS / 5 concurrent connections per IP)",
+    "ELK Stack observability with structured JSON logs indexed per service and date",
+    "Multi-stage Docker builds based on Amazon Corretto 17 Alpine"
+  ],
+  "publicApiSurface": [
+    "GET    /                              — list users (scope: read)",
+    "GET    /{id}                          — get user by ID (scope: read)",
+    "POST   /                              — create user (scope: write)",
+    "PUT    /{id}                          — update user (scope: write)",
+    "DELETE /{id}                          — delete user (scope: write)",
+    "GET    /usuarios-por-curso?ids=…      — get users by IDs (scope: read)",
+    "GET    /login?email=…                 — lookup user by email (internal)",
+    "GET    /                              — list courses",
+    "GET    /{id}                          — get course with enrolled users (Bearer)",
+    "POST   /                              — create course",
+    "PUT    /{id}                          — update course",
+    "DELETE /{id}                          — delete course",
+    "PUT    /asignar-usuario/{cursoId}     — enroll existing user in course",
+    "POST   /crear-usuario/{cursoId}       — create user and enroll in course",
+    "DELETE /eliminar-usuario/{cursoId}    — unenroll user from course",
+    "DELETE /eliminar-curso-usuario/{id}   — remove course-user relationship by ID",
+    "GET    /oauth2/authorize              — OAuth2 authorization endpoint (msvc-auth)",
+    "POST   /oauth2/token                  — OAuth2 token endpoint (msvc-auth)",
+    "GET /api/usuarios/** (gateway)        — proxied to msvc-usuarios",
+    "GET /api/cursos/**   (gateway)        — proxied to msvc-cursos"
+  ]
+}

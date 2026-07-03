@@ -1,0 +1,149 @@
+---
+title: "Health Checks and Actuator Endpoints"
+sidebarTitle: "Health & Actuator"
+description: "Spring Boot Actuator exposes liveness and readiness probes for Kubernetes pod lifecycle management plus rich health and metrics endpoints for monitoring."
+---
+
+All services in this project expose Spring Boot Actuator endpoints out of the box. Both `msvc-usuarios` and `msvc-cursos` enable Kubernetes-native liveness and readiness probes so the control plane can accurately track pod lifecycle, and they expose full health component detail so monitoring tools can surface database connectivity, disk space, and application state at a glance.
+
+## Actuator Configuration
+
+The following properties are set in both `msvc-usuarios/src/main/resources/application.properties` and `msvc-cursos/src/main/resources/application.properties`:
+
+```properties
+management.endpoints.web.exposure.include=*
+management.endpoint.health.show-details=always
+management.endpoint.health.probes.enabled=true
+management.health.livenessstate.enabled=true
+management.health.readinessstate.enabled=true
+```
+
+- `exposure.include=*` — exposes every available Actuator endpoint over HTTP.
+- `show-details=always` — returns full component-level detail in `/actuator/health` responses without requiring authentication.
+- `probes.enabled=true` — activates the dedicated `/actuator/health/liveness` and `/actuator/health/readiness` sub-paths.
+- `livenessstate.enabled` / `readinessstate.enabled` — registers Spring's internal liveness and readiness health indicators so Kubernetes probes map directly to the application's lifecycle state.
+
+## Available Endpoints
+
+All endpoints are served under the `/actuator` base path on each service's port.
+
+| Endpoint | Description |
+|---|---|
+| `/actuator/health` | Overall health status with full component details |
+| `/actuator/health/liveness` | Kubernetes liveness probe — is the application process alive? |
+| `/actuator/health/readiness` | Kubernetes readiness probe — is the application ready to serve traffic? |
+| `/actuator/info` | Application metadata (name, version, build info) |
+| `/actuator/metrics` | Micrometer metrics catalog (JVM, HTTP server, datasource, etc.) |
+| `/actuator/env` | All environment variables and resolved configuration properties |
+| `/actuator/beans` | Every Spring bean registered in the application context |
+| `/actuator/mappings` | All HTTP request mappings with handler details |
+
+## Example Health Response
+
+A typical response from `GET /actuator/health` when all components are healthy:
+
+```json
+{
+  "status": "UP",
+  "components": {
+    "db": {
+      "status": "UP",
+      "details": {
+        "database": "MySQL",
+        "validationQuery": "isValid()"
+      }
+    },
+    "diskSpace": { "status": "UP" },
+    "livenessState": { "status": "UP" },
+    "readinessState": { "status": "UP" },
+    "ping": { "status": "UP" }
+  }
+}
+```
+
+`msvc-cursos` reports `"database": "PostgreSQL"` in the `db` component details since it uses PostgreSQL 14 as its backing store.
+
+## Kubernetes Probes
+
+Kubernetes uses the liveness probe to decide whether to restart a pod and the readiness probe to decide whether to route traffic to it. The recommended probe configuration for both microservices is:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /actuator/health/liveness
+    port: 8001
+  initialDelaySeconds: 30
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /actuator/health/readiness
+    port: 8001
+  initialDelaySeconds: 15
+  periodSeconds: 5
+```
+
+Use port `8002` for `msvc-cursos`. The `initialDelaySeconds` gives Spring Boot time to complete startup — including datasource connection pool initialization and JPA schema generation — before the first probe is evaluated.
+
+<Note>
+  The probe configuration above is recommended reference configuration. Always check the actual Kubernetes manifest files (`deployment-usuarios.yaml`, `deployment-cursos.yaml`) in the repository for the current values applied to the running cluster.
+</Note>
+
+## Quick Health Check
+
+Use these `curl` commands to verify service health from a local machine or from within the cluster:
+
+```bash
+# msvc-usuarios (port 8001)
+curl http://localhost:8001/actuator/health
+curl http://localhost:8001/actuator/health/liveness
+curl http://localhost:8001/actuator/health/readiness
+
+# msvc-cursos (port 8002)
+curl http://localhost:8002/actuator/health
+curl http://localhost:8002/actuator/health/liveness
+curl http://localhost:8002/actuator/health/readiness
+```
+
+A healthy response returns HTTP `200 OK` with `{"status":"UP"}`. A `503 Service Unavailable` with `{"status":"DOWN"}` or `{"status":"OUT_OF_SERVICE"}` indicates a component failure — check the `components` section for which indicator is reporting the problem.
+
+## Metrics
+
+Actuator exposes a Micrometer metrics registry at `/actuator/metrics`. Each metric can be queried individually to retrieve its current value, tags, and measurement type.
+
+```bash
+# List all available metric names
+curl http://localhost:8001/actuator/metrics
+
+# JVM heap memory currently used
+curl http://localhost:8001/actuator/metrics/jvm.memory.used
+
+# HTTP server request statistics (count, total time, max)
+curl http://localhost:8001/actuator/metrics/http.server.requests
+
+# Active datasource connections
+curl http://localhost:8001/actuator/metrics/hikaricp.connections.active
+```
+
+Metrics can be further filtered by tag. For example, to scope HTTP metrics to a specific URI and method:
+
+```bash
+curl "http://localhost:8001/actuator/metrics/http.server.requests?tag=uri:/actuator/health&tag=method:GET"
+```
+
+## Crash Endpoint
+
+<Warning>
+  `msvc-usuarios` exposes `GET /crash`, implemented in `UsuarioController`, which calls `((ConfigurableApplicationContext) context).close()` — immediately shutting down the entire Spring `ApplicationContext`. This endpoint exists exclusively as a **Kubernetes resilience test**: calling it deliberately kills the pod so you can verify that the liveness probe detects the failure and Kubernetes automatically restarts the pod. **Never call `/crash` in a production environment.** It is not protected by OAuth2 and will take the service offline instantly.
+</Warning>
+
+## Production Recommendations
+
+<Tip>
+  In production, restrict the set of exposed Actuator endpoints to reduce the attack surface. Replace the wildcard exposure with an explicit allowlist:
+
+  ```properties
+  management.endpoints.web.exposure.include=health,info
+  ```
+
+  This keeps liveness and readiness probes functional while hiding sensitive endpoints such as `/actuator/env` (which can expose secrets) and `/actuator/beans` (which reveals implementation details). If you need metrics in production, add `metrics` to the list and place the Actuator port behind a network policy that only allows scraping from your monitoring infrastructure.
+</Tip>

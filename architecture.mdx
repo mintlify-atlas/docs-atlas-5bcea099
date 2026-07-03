@@ -1,0 +1,112 @@
+---
+title: "System Architecture: Four-Service Microservices Design"
+sidebarTitle: "Architecture"
+description: "How traffic flows from NGINX Ingress through the API Gateway to business services, how OAuth2 tokens are issued, and how OpenFeign wires services together inside Kubernetes."
+---
+
+The platform is a four-service microservices architecture deployed inside a Kubernetes cluster. External traffic enters through an NGINX Ingress Controller at `microservicios.local`, is routed to msvc-gateway, and then forwarded to the appropriate business service. Authentication is handled entirely by msvc-auth, which issues JWT tokens consumed by msvc-usuarios and msvc-cursos as OAuth2 Resource Servers. Services communicate with each other via OpenFeign using Kubernetes DNS, and each service owns an isolated database with no cross-service SQL access.
+
+## Cluster Topology
+
+```
+                        ┌─────────────────────────────────────────┐
+                        │              KUBERNETES CLUSTER          │
+                        │                                          │
+  Cliente ──────────────►  Ingress NGINX (microservicios.local)   │
+                        │      /usuarios  │  /cursos               │
+                        │          │              │                │
+                        │    ┌─────▼──────┐ ┌────▼────────┐       │
+                        │    │msvc-gateway│ │             │       │
+                        │    │  :8090     │ │             │       │
+                        │    └─────┬──────┘ │             │       │
+                        │          │        │             │       │
+                        │    ┌─────▼──────┐ ┌────▼────────┐       │
+                        │    │msvc-usuarios│ │msvc-cursos  │       │
+                        │    │   :8001    │ │   :8002     │       │
+                        │    └─────┬──────┘ └──────┬──────┘       │
+                        │          │  Feign         │  Feign       │
+                        │    ┌─────▼──────┐         │              │
+                        │    │  msvc-auth │◄────────┘              │
+                        │    │   :9000    │                        │
+                        │    └────────────┘                        │
+                        │                                          │
+                        │    ┌──────────┐  ┌──────────┐           │
+                        │    │  MySQL 8 │  │Postgres14│           │
+                        │    │ usuarios │  │  cursos  │           │
+                        │    └──────────┘  └──────────┘           │
+                        └─────────────────────────────────────────┘
+```
+
+## OAuth2 Authentication Flow
+
+The platform uses the **Authorization Code** grant type with client credentials `usuarios-client` / `12345` and scopes `openid`, `read`, and `write`.
+
+1. The client initiates the flow by sending a `GET` request to `/oauth2/authorize` on msvc-auth (port 9000), passing `response_type=code`, `client_id=usuarios-client`, and the desired scopes.
+2. msvc-auth queries user credentials from msvc-usuarios via a reactive WebClient call to the internal `/login?email=` endpoint — this is the only case where msvc-auth reaches out to another service.
+3. Upon successful authentication, msvc-auth issues a signed JWT access token containing the granted scopes (`read`, `write`, `openid`).
+4. The client attaches the JWT as a `Bearer` token on subsequent requests to msvc-usuarios and msvc-cursos. Both services validate the token locally as OAuth2 Resource Servers without a round-trip to msvc-auth.
+
+## Inter-Service Communication
+
+Business services call each other using **OpenFeign** declarative HTTP clients. Service resolution is performed by Spring Cloud Kubernetes using Kubernetes Service DNS — there is no Eureka or Consul registry.
+
+- **msvc-cursos → msvc-usuarios**: msvc-cursos calls msvc-usuarios to create a new user and immediately enroll them in a course (`POST /crear-usuario/{cursoId}`), and to look up users by ID when returning course details.
+- **msvc-usuarios → msvc-cursos**: msvc-usuarios calls msvc-cursos to clean up all course enrollments when a user is deleted, ensuring referential consistency across the isolated databases.
+- **DNS-based discovery**: Feign clients resolve target services by their Kubernetes Service names — `lb://msvc-usuarios` and `lb://msvc-cursos` — enabling client-side load balancing across multiple pod replicas.
+
+## Gateway Routing
+
+msvc-gateway uses **Spring Cloud Gateway MVC** to route external requests to upstream services. Routes are defined in `msvc-gateway/src/main/resources/application.yaml`:
+
+| Path Prefix | Backend Service | Strip Prefix |
+| --- | --- | --- |
+| `/api/usuarios/**` | `lb://msvc-usuarios` | 2 |
+| `/api/cursos/**` | `lb://msvc-cursos` | 2 |
+
+The `StripPrefix=2` filter removes the first two path segments before forwarding. A request to `/api/usuarios/1` is forwarded to msvc-usuarios as `/1`. The `lb://` scheme activates Spring Cloud LoadBalancer, which distributes traffic across all healthy pods of the target service.
+
+## Data Isolation
+
+Each service owns its database exclusively. There are no shared schemas and no direct cross-service SQL queries.
+
+- **msvc-usuarios → MySQL 8** — schema `msvc_usuarios`. Managed by Spring Data JPA with `spring.jpa.generate-ddl=true`, using the `MySQL8Dialect` Hibernate dialect.
+- **msvc-cursos → PostgreSQL 14** — schema `msvc_cursos`. Managed by Spring Data JPA with `spring.jpa.generate-ddl=true`, using the `PostgreSQLDialect` Hibernate dialect.
+
+Cross-service data needs — such as fetching user details inside a course response — are satisfied exclusively through the REST APIs via OpenFeign, keeping each service's persistence layer fully independent.
+
+## Repository Structure
+
+```
+proyecto-microservicios/
+├── pom.xml                         # Parent POM (multi-module)
+├── docker-compose.yml              # Local stack: MySQL, PostgreSQL, services
+├── docker-compose-elk.yml          # ELK stack: Elasticsearch, Logstash, Kibana
+├── logstash/
+│   └── pipeline/logstash.conf      # Log ingestion pipeline
+│
+├── msvc-auth/                      # OAuth2 Authorization Server
+├── msvc-usuarios/                  # Users microservice
+├── msvc-cursos/                    # Courses microservice
+├── msvc-gateway/                   # API Gateway
+│
+├── Kubernetes - Databases:
+│   ├── deployment-mysql.yaml / svc-mysql.yaml
+│   ├── deployment-postgres.yaml / svc-postgres.yaml
+│   ├── mysql-pv.yaml / mysql-pvc.yaml
+│   └── postgres-pv.yaml / postgres-pvc.yaml
+│
+├── Kubernetes - Microservices:
+│   ├── auth.yml                    # Deployment + Service for msvc-auth
+│   ├── deployment-usuarios.yaml / svc-usuarios.yaml
+│   ├── deployment-cursos.yaml / svc-cursos.yaml
+│   └── gateway.yaml                # Deployment + Service for msvc-gateway
+│
+├── Kubernetes - Configuration:
+│   ├── configmap.yaml              # Environment variables per microservice
+│   └── secret.yaml                 # Database credentials
+│
+└── Kubernetes - Infrastructure:
+    ├── hpa-usuarios.yaml           # HPA: scales to 5 replicas at 50% CPU
+    ├── hpa-cursos.yaml
+    └── ingress.yaml                # NGINX Ingress with rate limiting
+```

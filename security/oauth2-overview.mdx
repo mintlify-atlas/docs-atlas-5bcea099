@@ -1,0 +1,188 @@
+---
+title: "OAuth2 Authorization Code Flow with JWT"
+sidebarTitle: "OAuth2 Overview"
+description: "msvc-auth issues JWTs via the Authorization Code grant with refresh token support, PKCE-ready, RSA 2048-bit signing, and openid/read/write scopes."
+---
+
+The platform uses the OAuth2 Authorization Code grant (with refresh token support) via Spring Authorization Server. All tokens are signed JWTs using a 2048-bit RSA keypair generated at startup. `msvc-auth` (port 9000) acts as the centralized authorization server; `msvc-usuarios` and `msvc-cursos` are OAuth2 resource servers that validate every inbound Bearer token.
+
+## Grant Type and Client
+
+The registered client is configured in `SecurityConfig` inside `msvc-auth` using an in-memory `RegisteredClientRepository`.
+
+| Property | Value |
+|---|---|
+| Grant types | `authorization_code`, `refresh_token` |
+| Client ID | `usuarios-client` |
+| Client Secret | `12345` (BCrypt-encoded at registration) |
+| Auth method | `CLIENT_SECRET_BASIC` (HTTP Basic) |
+| Requires consent | Yes |
+| Scopes | `openid`, `read`, `write` |
+
+The redirect URI is driven by the environment variable `LB_AUTH_REDIRECT_URI`, appended with `/authorized`. In a standard local Kubernetes setup this resolves to `http://msvc-usuarios:8001/authorized`.
+
+```java
+RegisteredClient oidcClient = RegisteredClient.withId(UUID.randomUUID().toString())
+        .clientId("usuarios-client")
+        .clientSecret(passwordEncoder().encode("12345"))
+        .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+        .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+        .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
+        .redirectUri(env.getProperty("LB_AUTH_REDIRECT_URI") + "/authorized")
+        .scope(OidcScopes.OPENID)
+        .scope("read")
+        .scope("write")
+        .clientSettings(ClientSettings.builder().requireAuthorizationConsent(true).build())
+        .build();
+```
+
+## Scopes and Permissions
+
+| Scope | Purpose |
+|---|---|
+| `openid` | Issues an OIDC identity token alongside the access token |
+| `read` | Access `GET` endpoints on `msvc-usuarios` and `msvc-cursos` |
+| `write` | Access `POST`, `PUT`, and `DELETE` endpoints on `msvc-usuarios` |
+
+<Note>
+  Scopes map directly to Spring Security authorities. msvc-usuarios enforces them as `SCOPE_read` and `SCOPE_write` in its `SecurityFilterChain`.
+</Note>
+
+## Authorization Flow
+
+<Steps>
+  <Step title="Redirect the user to the authorization endpoint">
+    Send the browser or HTTP client to `msvc-auth` on port 9000:
+
+    ```
+    GET http://<auth-server>:9000/oauth2/authorize
+        ?response_type=code
+        &client_id=usuarios-client
+        &scope=openid%20read%20write
+        &redirect_uri=http://msvc-usuarios:8001/authorized
+    ```
+  </Step>
+
+  <Step title="User authenticates via form login">
+    Spring Security presents the default form-login page. On submission, `msvc-auth` delegates credential validation to `msvc-usuarios` via reactive WebClient — it calls `GET /login?email=<email>` and compares the BCrypt-hashed password returned by that endpoint.
+  </Step>
+
+  <Step title="User consents to the requested scopes">
+    Because `requireAuthorizationConsent(true)` is set on the client, Spring Authorization Server shows a consent screen listing `openid`, `read`, and `write`. The user must approve before a code is issued.
+  </Step>
+
+  <Step title="Authorization code returned to the redirect URI">
+    After consent, `msvc-auth` redirects to:
+
+    ```
+    http://msvc-usuarios:8001/authorized?code=<authorization_code>
+    ```
+
+    The `UsuarioController` `/authorized` endpoint simply echoes the code back so it can be exchanged manually or by the client application.
+  </Step>
+
+  <Step title="Exchange the code for tokens">
+    Make a `POST` to `/oauth2/token` using HTTP Basic auth with the client credentials:
+
+    ```bash
+    curl -X POST http://<auth-server>:9000/oauth2/token \
+      -H 'Authorization: Basic dXN1YXJpb3MtY2xpZW50OjEyMzQ1' \
+      -d 'grant_type=authorization_code' \
+      -d 'code=<authorization_code>' \
+      -d 'redirect_uri=http://msvc-usuarios:8001/authorized'
+    ```
+
+    The `Authorization` header value `dXN1YXJpb3MtY2xpZW50OjEyMzQ1` is the Base64 encoding of `usuarios-client:12345`.
+  </Step>
+
+  <Step title="Receive the token response">
+    A successful exchange returns a JSON object similar to:
+
+    ```json
+    {
+      "access_token": "<jwt>",
+      "refresh_token": "<opaque-token>",
+      "id_token": "<oidc-jwt>",
+      "token_type": "Bearer",
+      "expires_in": 300,
+      "scope": "openid read write"
+    }
+    ```
+
+    Use `access_token` as the Bearer credential for all subsequent API calls.
+  </Step>
+</Steps>
+
+## Token Endpoint curl Examples
+
+```bash
+# Step 1 — initiate authorization (open in browser or redirect)
+GET http://<auth-server>:9000/oauth2/authorize?\
+  response_type=code\
+  &client_id=usuarios-client\
+  &scope=openid%20read%20write\
+  &redirect_uri=http://msvc-usuarios:8001/authorized
+
+# Step 2 — exchange code for token
+curl -X POST http://<auth-server>:9000/oauth2/token \
+  -H 'Authorization: Basic dXN1YXJpb3MtY2xpZW50OjEyMzQ1' \
+  -d 'grant_type=authorization_code' \
+  -d 'code=<authorization_code>' \
+  -d 'redirect_uri=http://msvc-usuarios:8001/authorized'
+```
+
+## Refresh Token
+
+Access tokens expire after a short window (`expires_in` seconds). Use the `refresh_token` from the initial response to obtain a new access token without re-authenticating the user:
+
+```bash
+curl -X POST http://<auth-server>:9000/oauth2/token \
+  -H 'Authorization: Basic dXN1YXJpb3MtY2xpZW50OjEyMzQ1' \
+  -d 'grant_type=refresh_token' \
+  -d 'refresh_token=<refresh_token>'
+```
+
+The response includes a fresh `access_token` and, depending on server policy, a new `refresh_token`.
+
+## RSA Key
+
+The `jwkSource` bean in `SecurityConfig` generates a 2048-bit RSA keypair in memory at startup using `KeyPairGenerator`. Spring Authorization Server uses the private key to sign every JWT and publishes the corresponding public key in the JWK Set endpoint so resource servers can verify signatures:
+
+```
+GET http://<auth-server>:9000/oauth2/jwks
+```
+
+Because the keypair is stored only in memory, **keys rotate on every restart of `msvc-auth`**. Any token signed by a previous key will fail verification after a restart.
+
+<Warning>
+  For production deployments, replace the in-memory key generation with an external key store (e.g., a Kubernetes Secret, AWS KMS, or HashiCorp Vault) so that keypairs survive restarts and rolling updates without invalidating active sessions.
+</Warning>
+
+<Tip>
+  Resource servers (`msvc-usuarios`, `msvc-cursos`) cache the JWK Set they fetch from `msvc-auth`. After restarting `msvc-auth`, restart the resource servers as well — or wait for their JWK cache to expire — so they pick up the new public key.
+</Tip>
+
+## User Authentication Backend
+
+`msvc-auth` does not maintain its own user store. Instead, the `UsuarioService` bean implements Spring Security's `UserDetailsService` and delegates all user lookups to `msvc-usuarios` via a reactive WebClient:
+
+```java
+@Override
+public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+    try {
+        Usuario usuario = client.build().get()
+                .uri("http://msvc-usuarios/login", uri -> uri.queryParam("email", email).build())
+                .accept(MediaType.APPLICATION_JSON)
+                .retrieve()
+                .bodyToMono(Usuario.class)
+                .block();
+
+        return new User(email, usuario.getPassword(), true, true, true, true,
+                Collections.singleton(new SimpleGrantedAuthority("ROLE_USER")));
+    } catch (Exception e) {
+        throw new UsernameNotFoundException("No existe el usuario " + email);
+    }
+}
+```
+
+The `GET /login?email=<email>` endpoint on `msvc-usuarios` is publicly accessible (no Bearer token required) and returns the matching `Usuario` entity including the BCrypt-hashed password. `msvc-auth` then lets Spring Security's `DaoAuthenticationProvider` compare the submitted password against the hash.

@@ -1,47 +1,133 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with Spring Cloud Microservices"
+sidebarTitle: "Quickstart"
+description: "Run the full microservices stack locally with Docker Compose, verify service health endpoints, and learn where to go next for the complete OAuth2 flow on Kubernetes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+By the end of this guide you will have MySQL 8, PostgreSQL 14, msvc-usuarios, and msvc-cursos running locally via Docker Compose, with health endpoints responding on `localhost:8001` and `localhost:8002`. No Kubernetes cluster is required for this path — it is the fastest way to explore the APIs and validate your environment before moving on to a full Kubernetes deployment.
 
 ## Prerequisites
 
-Before you begin, you must have:
+<CardGroup cols={2}>
+  <Card title="Docker & Docker Compose" icon="docker">
+    Docker Engine 24+ and Docker Compose v2. Used to run databases and the pre-built service images from Docker Hub.
+  </Card>
+  <Card title="Java 17" icon="java">
+    Required only if you plan to run services outside of Docker or rebuild the JARs locally. Amazon Corretto 17 is recommended to match the production base image.
+  </Card>
+  <Card title="Maven 3.8+" icon="hammer">
+    Required only to compile the project and produce JARs locally. Not needed if you pull images directly from Docker Hub.
+  </Card>
+  <Card title="kubectl + Minikube" icon="server">
+    Required for the full OAuth2 flow including msvc-auth and msvc-gateway. Not needed for this Docker Compose quickstart.
+  </Card>
+</CardGroup>
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+## Steps
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Clone the repository">
+    Clone the project to your local machine and change into the project root:
 
     ```bash
-    npm install your-package
+    git clone https://github.com/Miguel-Rodriguez15/msvc.git
+    cd msvc
     ```
+
+    The root directory contains the parent `pom.xml`, `docker-compose.yml`, and all four service modules.
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Start databases only (development mode)">
+    If you only need the databases running — for example, to start services locally from your IDE — bring up just the database containers:
 
     ```bash
-    your-cli init
+    docker compose up mysql8 postgres-cursos -d
     ```
+
+    This starts:
+    - **MySQL 8** on `localhost:3307` with database `msvc_usuarios` and root password `admin123`
+    - **PostgreSQL 14** on `localhost:5532` with database `msvc_cursos`, user `postgres`, and password `postgres123`
+
+    Both containers persist data in named Docker volumes (`data-mysql` and `data-postgres`) and join the shared `spring` network.
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Start the full stack">
+    To run the complete Docker Compose stack — databases plus both business microservices — use:
 
     ```bash
-    your-cli start
+    docker compose up -d
     ```
+
+    This brings up four containers:
+
+    | Container | Image | Host Port |
+    | --- | --- | --- |
+    | `mysql8` | `mysql:8` | `localhost:3307` |
+    | `postgres-cursos` | `postgres:latest` | `localhost:5532` |
+    | `msvc-usuarios` | `miguelrodriguez15/msvc-usuarios:latest` | `localhost:8001` |
+    | `msvc-cursos` | `miguelrodriguez15/msvc-cursos:latest` | `localhost:8002` |
+
+    Both service containers read their configuration from `.env` files in their respective module directories (`msvc-usuarios/.env` and `msvc-cursos/.env`). Each service waits for its database container to be available before starting due to `depends_on` ordering.
+  </Step>
+
+  <Step title="Verify service health">
+    Once the containers are up, confirm both services are healthy by calling their Actuator health endpoints:
+
+    ```bash
+    curl http://localhost:8001/actuator/health
+    ```
+
+    ```bash
+    curl http://localhost:8002/actuator/health
+    ```
+
+    A healthy service returns:
+
+    ```json
+    {"status":"UP"}
+    ```
+
+    If you see `"status":"DOWN"` or a connection error, the service is still starting up or waiting on its database. Wait a few seconds and retry. You can inspect container logs with `docker compose logs msvc-usuarios` or `docker compose logs msvc-cursos`.
+  </Step>
+
+  <Step title="Stop services">
+    To stop all running containers without removing their data volumes:
+
+    ```bash
+    docker compose down
+    ```
+
+    To stop all containers **and permanently delete the database volumes** (useful for a clean-slate restart):
+
+    ```bash
+    docker compose down -v
+    ```
+
+    <Warning>
+      Running `docker compose down -v` removes the `data-mysql` and `data-postgres` volumes. All data stored in both databases will be permanently lost.
+    </Warning>
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+<Note>
+  **msvc-auth and msvc-gateway are not included in the Docker Compose file.** The Authorization Server and API Gateway require Kubernetes DNS-based service discovery (`lb://msvc-usuarios`, `lb://msvc-cursos`) to function correctly and are only deployed via Kubernetes manifests. For the complete OAuth2 Authorization Code flow, see the [Kubernetes deployment guide](/deployment/kubernetes-setup).
+</Note>
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+<Tip>
+  If you need to build and publish Docker images locally — for example, after making code changes — run a multi-stage Docker build and push to Docker Hub:
+
+  ```bash
+  cd msvc-usuarios
+  docker build -t miguelrodriguez15/msvc-usuarios:latest .
+  docker push miguelrodriguez15/msvc-usuarios:latest
+  ```
+
+  Repeat the same pattern for `msvc-cursos`, `msvc-auth`, and `msvc-gateway`. The pre-built images available on Docker Hub are:
+
+  ```
+  miguelrodriguez15/msvc-auth:latest
+  miguelrodriguez15/msvc-usuarios:latest
+  miguelrodriguez15/msvc-cursos:latest
+  miguelrodriguez15/msvc-gateway:latest
+  ```
 </Tip>

@@ -1,0 +1,67 @@
+---
+title: "DELETE /{id} — Delete a Course"
+sidebarTitle: "Delete Course"
+description: "Permanently deletes a course and all its enrollment records from the msvc-cursos database. Returns 204 on success or 404 if the course is not found."
+---
+
+Permanently removes a `Curso` record from the `cursos` table. Because the `cursoUsuarios` relationship is mapped with `cascade = CascadeType.ALL` and `orphanRemoval = true`, all associated `CursoUsuario` rows in the `cursos_usuarios` junction table are deleted automatically in the same transaction. **This operation is irreversible.**
+
+Users stored in `msvc-usuarios` are **not** affected — only the enrollment links are removed alongside the course.
+
+No authentication is required for this endpoint.
+
+## Endpoint
+
+```
+DELETE http://localhost:8002/{id}
+```
+
+**Via API Gateway:**
+
+```
+DELETE http://localhost:8090/api/cursos/{id}
+```
+
+---
+
+## Path Parameters
+
+<ParamField path="id" type="number" required>
+  The primary key of the course to delete.
+</ParamField>
+
+---
+
+## Response
+
+**204 No Content** — The course and all its enrollment records were deleted. The response body is empty.
+
+**404 Not Found** — No course with the given `id` exists. The response body is empty.
+
+---
+
+## Examples
+
+### Request
+
+```bash
+curl -X DELETE http://localhost:8002/1
+```
+
+### Response — 204 No Content
+
+```
+(empty body)
+```
+
+### Response — 404 Not Found
+
+```
+(empty body)
+```
+
+---
+
+<Warning>
+  Deleting a course cascades to all `CursoUsuario` records linked to it (`CascadeType.ALL`, `orphanRemoval = true`). Enrolled users in `msvc-usuarios` are **not** deleted, but the enrollment association is permanently removed. If you only want to remove a single enrollment junction record without deleting the entire course, use [DELETE /eliminar-curso-usuario/\{id\}](/api/cursos/unenroll-user#eliminar-curso-usuario).
+</Warning>

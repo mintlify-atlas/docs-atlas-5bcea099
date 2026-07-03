@@ -1,0 +1,115 @@
+---
+title: "GET /usuarios-por-curso — Fetch Users by ID List"
+sidebarTitle: "Users by IDs"
+description: "Returns an array of Usuario objects matching the supplied list of IDs. Used internally by msvc-cursos to populate enrolled students. Requires the OAuth2 read scope."
+---
+
+Accepts a list of user IDs as a repeated query parameter and returns the matching `Usuario` records as a JSON array. This endpoint is called internally by `msvc-cursos` via OpenFeign whenever course details are fetched and the service needs to hydrate the enrolled-student list with full user objects. It can also be called directly for batch user lookups. A valid OAuth2 Bearer token with the **`read`** scope is required.
+
+**Base URL:** `http://localhost:8001`  
+**Gateway URL:** `http://localhost:8090/api/usuarios`
+
+---
+
+## Endpoint
+
+```
+GET http://localhost:8001/usuarios-por-curso
+```
+
+---
+
+## Request
+
+### Headers
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <access_token>` |
+
+### Query Parameters
+
+<ParamField query="ids" type="List<Long>" required>
+  A comma-separated list of user IDs to retrieve. At least one ID must be provided. IDs that do not match any existing user are silently omitted from the result — no error is raised for missing IDs.
+
+  Example: `?ids=1,2,3`
+</ParamField>
+
+---
+
+## Response
+
+### 200 OK
+
+Returns a JSON array of `Usuario` objects whose `id` values match those supplied in the `ids` parameter. The `password` field is **never** included. Users whose IDs are not found are silently omitted from the array.
+
+<ResponseField name="[].id" type="number">
+  Auto-generated primary key of the user.
+</ResponseField>
+
+<ResponseField name="[].nombre" type="string">
+  The user's display name.
+</ResponseField>
+
+<ResponseField name="[].email" type="string">
+  The user's unique email address.
+</ResponseField>
+
+---
+
+## Example
+
+### Request
+
+```bash
+curl -X GET 'http://localhost:8001/usuarios-por-curso?ids=1,2,3' \
+  -H "Authorization: Bearer <access_token>"
+```
+
+Via the API Gateway:
+
+```bash
+curl -X GET 'http://localhost:8090/api/usuarios/usuarios-por-curso?ids=1,2,3' \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### 200 Response
+
+```json
+[
+  {
+    "id": 1,
+    "nombre": "Ana García",
+    "email": "ana.garcia@example.com"
+  },
+  {
+    "id": 2,
+    "nombre": "Carlos López",
+    "email": "carlos.lopez@example.com"
+  },
+  {
+    "id": 3,
+    "nombre": "María Torres",
+    "email": "maria.torres@example.com"
+  }
+]
+```
+
+### Partial Match Response
+
+If ID `99` does not exist, only the matching records are returned — no error is raised:
+
+```bash
+curl -X GET 'http://localhost:8001/usuarios-por-curso?ids=1,99' \
+  -H "Authorization: Bearer <access_token>"
+```
+
+```json
+[
+  {
+    "id": 1,
+    "nombre": "Ana García",
+    "email": "ana.garcia@example.com"
+  }
+]
+```

@@ -1,0 +1,140 @@
+---
+title: "DELETE /eliminar-usuario/{cursoId} — Unenroll User from Course"
+sidebarTitle: "Unenroll User"
+description: "Removes a user's CursoUsuario enrollment record from a course. The user in msvc-usuarios is NOT deleted. Returns the unenrolled Usuario on HTTP 201."
+---
+
+Removes a user's enrollment from a course by deleting the matching `CursoUsuario` junction record from the `cursos_usuarios` table. The service confirms the user exists in `msvc-usuarios` via OpenFeign (`GET /{id}`), then removes the corresponding `CursoUsuario` entry and saves the updated course. The `Usuario` record in `msvc-usuarios` is **never affected** — only the enrollment link is removed.
+
+This page also covers the companion endpoint **DELETE /eliminar-curso-usuario/\{id\}**, which deletes a `CursoUsuario` record directly by its own primary key and is intended for use by `msvc-usuarios` when a user account is deleted.
+
+No authentication is required for either endpoint.
+
+## Endpoint
+
+```
+DELETE http://localhost:8002/eliminar-usuario/{cursoId}
+```
+
+**Via API Gateway:**
+
+```
+DELETE http://localhost:8090/api/cursos/eliminar-usuario/{cursoId}
+```
+
+---
+
+## Path Parameters
+
+<ParamField path="cursoId" type="number" required>
+  The primary key of the course from which the user will be unenrolled.
+</ParamField>
+
+---
+
+## Request Body
+
+`Content-Type: application/json`
+
+<ParamField body="id" type="number" required>
+  The primary key of the user in `msvc-usuarios` whose enrollment should be removed.
+</ParamField>
+
+---
+
+## Response
+
+**201 Created** — The `Usuario` object returned by `msvc-usuarios` for the unenrolled user.
+
+<ResponseField name="id" type="number">
+  Primary key of the user in `msvc-usuarios`.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  Full name of the unenrolled user.
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Email address of the unenrolled user.
+</ResponseField>
+
+<ResponseField name="password" type="string">
+  Hashed password as stored in `msvc-usuarios`.
+</ResponseField>
+
+---
+
+**404 Not Found** — Returned when the Feign call to `msvc-usuarios` throws a `FeignException` (user not found or service unreachable), or when no course with `cursoId` exists.
+
+<ResponseField name="mensaje" type="string">
+  Error message prefixed with `"No se pudo eliminar el usuarioo error en la comunicacion: "` followed by the Feign exception message.
+</ResponseField>
+
+---
+
+## Examples
+
+### Request
+
+```bash
+curl -X DELETE http://localhost:8002/eliminar-usuario/1 \
+  -H "Content-Type: application/json" \
+  -d '{"id": 2}'
+```
+
+### Response — 201 Created
+
+```json
+{
+  "id": 2,
+  "nombre": "Carlos López",
+  "email": "carlos@example.com",
+  "password": "$2a$10$hashed..."
+}
+```
+
+### Response — 404 Not Found
+
+```json
+{
+  "mensaje": "No se pudo eliminar el usuarioo error en la comunicacion: [404 Not Found] during [GET] to [http://msvc-usuarios/2]"
+}
+```
+
+---
+
+## Companion Endpoint — DELETE /eliminar-curso-usuario/\{id\} \{#eliminar-curso-usuario\}
+
+```
+DELETE http://localhost:8002/eliminar-curso-usuario/{id}
+```
+
+**Via API Gateway:**
+
+```
+DELETE http://localhost:8090/api/cursos/eliminar-curso-usuario/{id}
+```
+
+Deletes a `CursoUsuario` record by its own **junction table primary key** (the `id` column in `cursos_usuarios`), rather than by user ID. This endpoint is designed for internal service-to-service use: when a user account is deleted in `msvc-usuarios`, that service calls this endpoint to clean up the corresponding enrollment record so no orphaned `CursoUsuario` rows remain.
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The primary key of the `CursoUsuario` record in the `cursos_usuarios` table.
+</ParamField>
+
+### Response
+
+**204 No Content** — The junction record was deleted. No response body is returned.
+
+### Example
+
+```bash
+curl -X DELETE http://localhost:8002/eliminar-curso-usuario/5
+```
+
+---
+
+<Note>
+  The `DELETE /eliminar-usuario/{cursoId}` endpoint removes the enrollment using the **user's ID** (sent in the request body), while `DELETE /eliminar-curso-usuario/{id}` removes a specific junction record using the **CursoUsuario record's own ID**. Use the former when unenrolling a user through a UI flow; use the latter for internal cleanup triggered by user deletion in `msvc-usuarios`.
+</Note>

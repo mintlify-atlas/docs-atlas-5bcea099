@@ -1,0 +1,196 @@
+---
+title: "msvc-usuarios: User Management REST API"
+sidebarTitle: "msvc-usuarios"
+description: "REST API for user CRUD on port 8001. Backed by MySQL 8, BCrypt password hashing, and OAuth2 Resource Server validating JWT tokens issued by msvc-auth."
+---
+
+`msvc-usuarios` is a Spring Boot REST API running on **port 8001** that manages user accounts persisted in **MySQL 8**. It acts as an OAuth2 Resource Server — all write endpoints and most read endpoints require a valid JWT bearer token issued by `msvc-auth`. Passwords are hashed with BCrypt before storage and never returned in plain text.
+
+<Card title="msvc-usuarios at a glance" icon="users">
+  | Property | Value |
+  |---|---|
+  | Port | `8001` |
+  | Database | MySQL 8 (`msvc_usuarios`) |
+  | Docker image | `miguelrodriguez15/msvc-usuarios:latest` |
+  | Auth | OAuth2 Resource Server (JWT) |
+</Card>
+
+## Data Model
+
+The `Usuario` entity is mapped to the `usuarios` table.
+
+| Field | Type | Constraint |
+|---|---|---|
+| `id` | `Long` | Primary key, auto-generated (`IDENTITY`) |
+| `nombre` | `String` | — |
+| `email` | `String` | Unique column |
+| `password` | `String` | BCrypt-encoded before persistence |
+
+```java
+@Entity
+@Table(name = "usuarios")
+public class Usuario {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String nombre;
+
+    @Column(unique = true)
+    private String email;
+
+    private String password;
+}
+```
+
+## API Endpoints
+
+| Method | Path | Description | Required Scope |
+|---|---|---|---|
+| `GET` | `/` | List all users (includes pod info and config text) | `read` or `write` |
+| `GET` | `/{id}` | Get a single user by ID | `read` or `write` |
+| `POST` | `/` | Create a new user (password BCrypt-encoded automatically) | `write` |
+| `PUT` | `/{id}` | Update an existing user | `write` |
+| `DELETE` | `/{id}` | Delete a user by ID | `write` |
+| `GET` | `/usuarios-por-curso` | Fetch multiple users by a list of IDs (query param: `ids`) | `read` or `write` |
+| `GET` | `/login` | Look up user by email (query param: `email`) — used by `msvc-auth` | Public |
+
+<Note>
+  The `/login` endpoint is intentionally public. It is only called internally by `msvc-auth` during the OAuth2 login flow and returns the BCrypt-hashed password so that the authorization server can verify credentials.
+</Note>
+
+### Example: List All Users Response
+
+The `GET /` endpoint wraps the user list with Kubernetes pod metadata and config text:
+
+```json
+{
+  "users": [...],
+  "pod_info": "msvc-usuarios-7d9f8b-xkzp2: 10.244.0.15",
+  "texto": "value from msvc-usuarios-config ConfigMap"
+}
+```
+
+## Security Configuration
+
+`msvc-usuarios` is configured as an **OAuth2 Resource Server** that validates JWTs using the JWKS endpoint of `msvc-auth`.
+
+```java
+http
+    .authorizeHttpRequests(authorize -> authorize
+        .requestMatchers("/authorized", "/login",
+                "/oauth2/authorization/msvc-usuarios-client",
+                "/actuator/**").permitAll()
+        .requestMatchers(HttpMethod.GET, "/", "/{id}").hasAnyAuthority("SCOPE_read", "SCOPE_write")
+        .requestMatchers(HttpMethod.POST, "/").hasAnyAuthority("SCOPE_write")
+        .requestMatchers(HttpMethod.PUT, "/{id}").hasAnyAuthority("SCOPE_write")
+        .requestMatchers(HttpMethod.DELETE, "/{id}").hasAnyAuthority("SCOPE_write")
+        .anyRequest().authenticated()
+    )
+    .csrf(csrf -> csrf.disable())
+    .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
+```
+
+| Scope | Permitted Operations |
+|---|---|
+| `SCOPE_read` | `GET /`, `GET /{id}` |
+| `SCOPE_write` | All of the above plus `POST /`, `PUT /{id}`, `DELETE /{id}` |
+
+A `BCryptPasswordEncoder` bean is declared in `SecurityConfig` and auto-wired into `UsuarioController` for encoding passwords on create and update operations.
+
+## Kubernetes & ConfigMap Integration
+
+`msvc-usuarios` integrates with the Kubernetes API to read configuration at runtime.
+
+```properties
+spring.cloud.kubernetes.config.name=msvc-usuarios-config
+spring.cloud.kubernetes.config.namespace=default
+spring.config.import=optional:kubernetes:
+```
+
+- **`msvc-usuarios-config`** — a Kubernetes `ConfigMap` in the `default` namespace. The key `config.texto` is exposed via `env.getProperty("config.texto")` and included in the `GET /` response body.
+- **`MY_POD_NAME` / `MY_POD_IP`** — injected from the Pod's `fieldRef` spec in the Kubernetes Deployment manifest and surfaced in every `GET /` response as `pod_info`. This makes it easy to verify which replica served a given request during load-testing.
+
+<Tip>
+  Bind `MY_POD_NAME` and `MY_POD_IP` in your Deployment using the Kubernetes Downward API:
+  ```yaml
+  env:
+    - name: MY_POD_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.name
+    - name: MY_POD_IP
+      valueFrom:
+        fieldRef:
+          fieldPath: status.podIP
+  ```
+</Tip>
+
+## Health Checks
+
+Spring Boot Actuator is fully exposed and configured for Kubernetes liveness and readiness probes:
+
+```properties
+management.endpoints.web.exposure.include=*
+management.endpoint.health.show-details=always
+management.endpoint.health.probes.enabled=true
+management.health.livenessstate.enabled=true
+management.health.readinessstate.enabled=true
+```
+
+| Probe | Endpoint |
+|---|---|
+| Liveness | `GET /actuator/health/liveness` |
+| Readiness | `GET /actuator/health/readiness` |
+| Full health | `GET /actuator/health` |
+
+## Environment Variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `PORT` | Server port | `8001` |
+| `DB_HOT` | MySQL host and port | `mysql8:3306` |
+| `DB_DATABASE` | Database name | `msvc_usuarios` |
+| `DB_USERNAME` | Database user | `root` |
+| `DB_PASSWORD` | Database password | `admin123` |
+| `CURSOS_URL` | URL for `msvc-cursos` (used by internal integrations) | `msvc-cursos:8002` |
+| `LB_AUTH_ISSUER_URI` | OAuth2 issuer URI for JWT validation | `http://127.0.0.1:9000` |
+
+## Dockerfile
+
+The image uses a two-stage build and runs as a non-root `spring` user:
+
+```dockerfile
+# ====== ETAPA 1: BUILD ======
+FROM amazoncorretto:17-alpine-jdk AS builder
+
+WORKDIR /app/msvc-usuarios
+
+COPY ./pom.xml /app
+COPY ./msvc-usuarios/.mvn ./.mvn
+COPY ./msvc-usuarios/mvnw .
+COPY ./msvc-usuarios/pom.xml .
+
+RUN ./mvnw clean package -Dmaven.test.skip \
+    -Dmaven.main.skip -Dspring-boot.repackage.skip
+
+COPY ./msvc-usuarios/src ./src
+
+RUN ./mvnw clean package -DskipTests
+
+# ====== ETAPA 2: RUNTIME ======
+FROM amazoncorretto:17-alpine-jdk
+
+WORKDIR /app
+
+RUN addgroup -S spring && adduser -S spring -G spring
+
+COPY --from=builder /app/msvc-usuarios/target/msvc-usuarios-0.0.1-SNAPSHOT.jar .
+
+EXPOSE 8001
+
+USER spring
+
+ENTRYPOINT ["java", "-jar", "msvc-usuarios-0.0.1-SNAPSHOT.jar"]
+```

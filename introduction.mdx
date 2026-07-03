@@ -1,0 +1,58 @@
+---
+title: "Spring Cloud Microservices: Architecture and Capabilities"
+sidebarTitle: "Introduction"
+description: "A production-ready microservices platform built on Spring Boot 3.5, Spring Cloud 2025, OAuth2/JWT, and Kubernetes — managing users, courses, and centralized auth."
+---
+
+Spring Cloud Microservices is a four-service Java platform built with Spring Boot 3.5.0 and Spring Cloud 2025.0.0, running on Java 17. The system manages users and courses with centralized OAuth2 authentication, Kubernetes-native service discovery, horizontal auto-scaling, and structured observability via the ELK Stack. Each service is independently deployable, owns its own database, and communicates over OpenFeign with JWT-secured REST APIs.
+
+## Services
+
+<CardGroup cols={2}>
+  <Card title="msvc-auth" icon="shield-halved" href="/services/msvc-auth">
+    OAuth2 Authorization Server running on port 9000. Issues JWT tokens with `read`, `write`, and `openid` scopes using the Authorization Code flow.
+  </Card>
+  <Card title="msvc-usuarios" icon="users" href="/services/msvc-usuarios">
+    Users API running on port 8001. Full CRUD with Spring Data JPA backed by MySQL 8. Acts as an OAuth2 Resource Server.
+  </Card>
+  <Card title="msvc-cursos" icon="book-open" href="/services/msvc-cursos">
+    Courses API running on port 8002. Manages courses and enrollments with Spring Data JPA backed by PostgreSQL 14.
+  </Card>
+  <Card title="msvc-gateway" icon="network-wired" href="/services/msvc-gateway">
+    API Gateway running on port 8090. Routes and load-balances traffic to upstream services using Spring Cloud Gateway MVC.
+  </Card>
+</CardGroup>
+
+## Tech Stack
+
+| Category | Technology |
+| --- | --- |
+| Language | Java 17 |
+| Framework | Spring Boot 3.5.0 |
+| Cloud | Spring Cloud 2025.0.0 |
+| Security | Spring Security 6, OAuth2, JWT |
+| Persistence | Spring Data JPA, Hibernate |
+| HTTP Client | OpenFeign |
+| Databases | MySQL 8, PostgreSQL 14 |
+| Containerization | Docker (multi-stage builds) |
+| Base Image | Amazon Corretto 17 Alpine |
+| Orchestration | Kubernetes (Minikube / any cluster) |
+| Gateway | Spring Cloud Gateway MVC |
+| Discovery | Spring Cloud Kubernetes |
+| Observability | Spring Actuator, ELK Stack 8.11 |
+| Build | Maven (multi-module) |
+
+## Key Features
+
+- **Centralized OAuth2 authentication** — a dedicated Authorization Server issues short-lived JWTs; all business services validate tokens locally as Resource Servers.
+- **Independent data stores** — msvc-usuarios owns a MySQL 8 schema; msvc-cursos owns a PostgreSQL 14 schema; no cross-service database access.
+- **OpenFeign inter-service calls** — services communicate via declarative HTTP clients with Kubernetes DNS-based load balancing.
+- **Multi-stage Docker builds** — images use Amazon Corretto 17 Alpine to minimize footprint and attack surface.
+- **Kubernetes-native scaling** — Horizontal Pod Autoscalers scale msvc-usuarios and msvc-cursos up to 5 replicas at 50 % CPU utilization.
+- **Structured observability** — JSON logs are shipped to Logstash and indexed in Elasticsearch with per-service daily indices (`msvc-logs-{service_name}-{date}`).
+- **NGINX Ingress rate limiting** — the Ingress controller exposes `microservicios.local` with built-in rate limiting before traffic reaches the gateway.
+- **Spring Actuator health probes** — liveness and readiness probes are enabled on all services and wired directly into Kubernetes pod lifecycle management.
+
+<Note>
+  Service discovery is **Kubernetes-native** via Spring Cloud Kubernetes — there is no Eureka or Consul registry. Services resolve each other by Kubernetes Service DNS names (e.g., `lb://msvc-usuarios`, `lb://msvc-cursos`), which means the full service mesh only functions inside a Kubernetes cluster. For local development without Kubernetes, use Docker Compose for the databases and business services, and configure URLs explicitly via environment variables.
+</Note>

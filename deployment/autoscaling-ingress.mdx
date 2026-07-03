@@ -1,0 +1,166 @@
+---
+title: "Autoscaling and Ingress Configuration"
+sidebarTitle: "Autoscaling & Ingress"
+description: "HPA configuration scaling msvc-usuarios and msvc-cursos to 5 pods at 50% CPU, and NGINX Ingress rate limiting at 10 RPS per IP with burst support."
+---
+
+The platform uses Kubernetes Horizontal Pod Autoscaler (HPA) for **msvc-usuarios** and **msvc-cursos** to respond automatically to CPU demand, and an NGINX Ingress with rate limiting to protect both services from traffic spikes. Together they ensure the system scales out gracefully under load while still rejecting abusive request patterns at the edge.
+
+## Horizontal Pod Autoscaler
+
+### HPA Configuration
+
+Both HPA resources are defined using `autoscaling/v2` and target CPU utilisation:
+
+| Setting | msvc-usuarios | msvc-cursos |
+|---|---|---|
+| API version | `autoscaling/v2` | `autoscaling/v2` |
+| Minimum replicas | 1 | 1 |
+| Maximum replicas | 5 | 5 |
+| CPU target (avg utilisation) | 50% | 50% |
+
+With a CPU request of `400m` per pod, the HPA begins scaling out when a pod's average CPU consumption reaches approximately **200m**. It scales back in when utilisation drops back below the threshold, subject to the default stabilisation window.
+
+### HPA Manifest
+
+The two HPA resources are identical in structure — only the `name` and `scaleTargetRef.name` differ:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hpa-msvc-usuarios
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: msvc-usuarios
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50
+```
+
+For `msvc-cursos`, the manifest is the same with `name: hpa-msvc-cursos` and `scaleTargetRef.name: msvc-cursos`.
+
+### Monitoring Autoscaling
+
+```bash
+# See current replica count and CPU targets for all HPAs
+kubectl get hpa
+
+# Detailed description including scale events
+kubectl describe hpa hpa-msvc-usuarios
+
+# Watch HPA activity in real time
+kubectl get hpa -w
+```
+
+The `TARGETS` column in `kubectl get hpa` shows `<current>/<target>` CPU utilisation. It will display `<unknown>` until the Metrics Server has collected at least one scrape interval of data.
+
+<Note>
+  HPA requires the **Metrics Server** to be running in the cluster. On Minikube, enable it with:
+
+  ```bash
+  minikube addons enable metrics-server
+  ```
+
+  On a managed cluster (GKE, EKS, AKS), the Metrics Server is typically pre-installed. Verify with `kubectl top pods`.
+</Note>
+
+## NGINX Ingress
+
+### Ingress Rules
+
+All external HTTP traffic enters the cluster at the hostname `microservicios.local`. The Ingress routes requests to the correct backend service based on the path prefix:
+
+| Path | Backend Service | Port |
+|---|---|---|
+| `/usuarios` | `msvc-usuarios` | 8001 |
+| `/cursos` | `msvc-cursos` | 8002 |
+
+The `rewrite-target: /` annotation strips the path prefix before forwarding to the backend, so a request to `http://microservicios.local/usuarios/1` reaches msvc-usuarios as `GET /1`.
+
+### Rate Limiting Annotations
+
+The Ingress applies per-IP rate limiting to both routes using the following annotations from `ingress.yaml`:
+
+| Annotation | Value | Description |
+|---|---|---|
+| `nginx.ingress.kubernetes.io/limit-rps` | `10` | Maximum 10 requests per second per source IP |
+| `nginx.ingress.kubernetes.io/limit-connections` | `5` | Maximum 5 concurrent connections per source IP |
+| `nginx.ingress.kubernetes.io/limit-req-status-code` | `429` | HTTP status code returned when the rate limit is exceeded |
+| `nginx.ingress.kubernetes.io/limit-burst-multiplier` | `3` | Burst factor — allows up to 30 RPS momentarily before throttling kicks in |
+| `nginx.ingress.kubernetes.io/rewrite-target` | `/` | Strips the path prefix (`/usuarios`, `/cursos`) before forwarding to the backend |
+
+### Ingress Manifest
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: microservicios-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/limit-connections: "5"
+    nginx.ingress.kubernetes.io/limit-req-status-code: "429"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: microservicios.local
+    http:
+      paths:
+      - path: /usuarios
+        pathType: Prefix
+        backend:
+          service:
+            name: msvc-usuarios
+            port:
+              number: 8001
+      - path: /cursos
+        pathType: Prefix
+        backend:
+          service:
+            name: msvc-cursos
+            port:
+              number: 8002
+```
+
+### Enable NGINX Ingress in Minikube
+
+```bash
+# Enable the NGINX Ingress addon
+minikube addons enable ingress
+
+# Verify the Ingress controller pod is running
+kubectl get pods -n ingress-nginx
+```
+
+Wait until the `ingress-nginx-controller-*` pod is in `Running` state before applying `ingress.yaml`.
+
+After the Ingress resource is created, add the Minikube node IP to your local `/etc/hosts` file so the `microservicios.local` hostname resolves:
+
+```bash
+echo "$(minikube ip) microservicios.local" | sudo tee -a /etc/hosts
+```
+
+You can then access both services through the Ingress:
+
+```bash
+# Users API via Ingress
+curl http://microservicios.local/usuarios
+
+# Courses API via Ingress
+curl http://microservicios.local/cursos
+```
+
+<Tip>
+  When a client exceeds the rate limit of 10 RPS sustained (or 30 RPS burst), the NGINX Ingress immediately returns **HTTP 429 Too Many Requests**. Implement exponential backoff with jitter in your API client to handle this gracefully — for example, retry after `2^attempt * 100ms + random(0..100ms)` on each 429 response.
+</Tip>

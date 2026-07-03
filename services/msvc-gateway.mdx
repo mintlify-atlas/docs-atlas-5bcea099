@@ -1,0 +1,108 @@
+---
+title: "msvc-gateway: Spring Cloud API Gateway"
+sidebarTitle: "msvc-gateway"
+description: "Single entry point on port 8090 using Spring Cloud Gateway MVC. Routes requests to msvc-usuarios and msvc-cursos by path prefix with Kubernetes load balancing."
+---
+
+`msvc-gateway` is a **Spring Cloud Gateway MVC** service running on **port 8090** that acts as the single entry point for the platform. It inspects the URL path prefix and forwards requests to the appropriate backend microservice — `msvc-usuarios` or `msvc-cursos` — using Kubernetes-native client-side load balancing. No business logic lives in the gateway itself.
+
+<Card title="msvc-gateway at a glance" icon="arrow-right-arrow-left">
+  | Property | Value |
+  |---|---|
+  | Port | `8090` |
+  | Database | None |
+  | Docker image | `miguelrodriguez15/msvc-gateway:latest` |
+  | Routing | Path-based, `StripPrefix=2` |
+  | Discovery | Spring Cloud Kubernetes (`lb://`) |
+</Card>
+
+## Routing Configuration
+
+All routes are defined in `application.yaml`. The gateway uses the **MVC variant** of Spring Cloud Gateway (`spring-cloud-starter-gateway-server-webmvc`), which runs on the standard Servlet stack rather than the reactive Netty stack.
+
+```yaml
+spring:
+  cloud:
+    gateway:
+      mvc:
+        routes:
+          - id: msvc-usuarios
+            uri: lb://msvc-usuarios
+            predicates:
+              - Path=/api/usuarios/**
+            filters:
+              - StripPrefix=2
+          - id: msvc-cursos
+            uri: lb://msvc-cursos
+            predicates:
+              - Path=/api/cursos/**
+            filters:
+              - StripPrefix=2
+```
+
+**How `StripPrefix=2` works:** the filter removes the first two path segments before forwarding the request to the backend. For example:
+
+| Incoming request | Forwarded to backend as |
+|---|---|
+| `GET /api/usuarios/` | `GET /` |
+| `GET /api/usuarios/42` | `GET /42` |
+| `GET /api/cursos/` | `GET /` |
+| `POST /api/cursos/asignar-usuario/1` | `POST /asignar-usuario/1` |
+
+This means all `msvc-usuarios` and `msvc-cursos` API paths are accessible through the gateway without any changes to the backing services.
+
+## Route Table
+
+| Route ID | Incoming Path Predicate | Backend URI | Effective Backend Path |
+|---|---|---|---|
+| `msvc-usuarios` | `/api/usuarios/**` | `lb://msvc-usuarios` | `/**` |
+| `msvc-cursos` | `/api/cursos/**` | `lb://msvc-cursos` | `/**` |
+
+## Load Balancing
+
+The `lb://` URI scheme instructs Spring Cloud Gateway to resolve the service name through **Spring Cloud Kubernetes** client-side load balancing (`spring-cloud-starter-kubernetes-client-all`). At runtime, `lb://msvc-usuarios` resolves to the IP addresses of all healthy `msvc-usuarios` pods in the cluster, and requests are distributed across them automatically. No Eureka or Consul registry is required — Kubernetes Services are used directly.
+
+<Info>
+  Spring Cloud Kubernetes discovery is enabled by the `spring-cloud-starter-kubernetes-client-all` dependency in `pom.xml`. The gateway requires appropriate RBAC permissions (a `ClusterRole` or namespaced `Role`) to read `Service` and `Endpoints` resources from the Kubernetes API.
+</Info>
+
+<Note>
+  The gateway does **not** currently validate JWT tokens. Authentication and authorisation are enforced at the individual service level — `msvc-usuarios` validates bearer tokens as an OAuth2 Resource Server. Requests that reach a backend without a valid token will be rejected by the service, not by the gateway.
+</Note>
+
+## Dockerfile
+
+The image uses a two-stage build with a parameterised `MSVC_NAME` build argument. The runtime port is set from the `PORT_APP` build argument (default `8090`) and exposed via the `PORT` environment variable.
+
+```dockerfile
+FROM amazoncorretto:17-alpine-jdk AS builder
+ARG MSVC_NAME=msvc-gateway
+WORKDIR /app/$MSVC_NAME
+
+COPY ./pom.xml /app
+COPY ./$MSVC_NAME/.mvn ./.mvn
+COPY ./$MSVC_NAME/mvnw .
+COPY ./$MSVC_NAME/pom.xml .
+
+RUN ./mvnw clean package -Dmaven.test.skip -Dmaven.main.skip -Dspring-boot.repackage.skip
+
+COPY ./msvc-gateway/src ./src
+
+RUN ./mvnw clean package -DskipTests
+
+FROM amazoncorretto:17-alpine-jdk
+
+WORKDIR /app
+ARG MSVC_NAME=msvc-gateway
+ARG TARGET_FOLDER=/app/$MSVC_NAME/target
+COPY --from=builder $TARGET_FOLDER/msvc-gateway-0.0.1-SNAPSHOT.jar .
+ARG PORT_APP=8090
+ENV PORT $PORT_APP
+EXPOSE $PORT
+
+CMD ["java", "-jar", "msvc-gateway-0.0.1-SNAPSHOT.jar"]
+```
+
+<Tip>
+  The Docker image is `miguelrodriguez15/msvc-gateway:latest`. When building from the monorepo root, run `docker build -f msvc-gateway/Dockerfile .` so the `COPY ./pom.xml /app` step resolves the parent POM correctly.
+</Tip>

@@ -1,72 +1,111 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "Spring Cloud Microservices",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
-  },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "pages": [
-      {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "primary": "#1E6B4F",
+    "light": "#D1FAE5",
+    "dark": "#0F3D2C"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/Miguel-Rodriguez15/msvc"
     }
-  },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
-    ]
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/Miguel-Rodriguez15/msvc"
     }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Overview",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Microservices",
+            "pages": [
+              "services/msvc-auth",
+              "services/msvc-usuarios",
+              "services/msvc-cursos",
+              "services/msvc-gateway"
+            ]
+          },
+          {
+            "group": "Security",
+            "pages": [
+              "security/oauth2-overview",
+              "security/token-usage"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Deployment",
+        "groups": [
+          {
+            "group": "Local Development",
+            "pages": [
+              "deployment/docker-compose",
+              "deployment/environment-variables"
+            ]
+          },
+          {
+            "group": "Kubernetes",
+            "pages": [
+              "deployment/kubernetes-setup",
+              "deployment/kubernetes-manifests",
+              "deployment/autoscaling-ingress"
+            ]
+          },
+          {
+            "group": "Observability",
+            "pages": [
+              "deployment/elk-stack",
+              "deployment/health-actuator"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Users API",
+            "pages": [
+              "api/usuarios/list-users",
+              "api/usuarios/get-user",
+              "api/usuarios/create-user",
+              "api/usuarios/update-user",
+              "api/usuarios/delete-user",
+              "api/usuarios/users-by-ids",
+              "api/usuarios/login-by-email"
+            ]
+          },
+          {
+            "group": "Courses API",
+            "pages": [
+              "api/cursos/list-courses",
+              "api/cursos/get-course",
+              "api/cursos/create-course",
+              "api/cursos/update-course",
+              "api/cursos/delete-course",
+              "api/cursos/enroll-user",
+              "api/cursos/create-enroll-user",
+              "api/cursos/unenroll-user"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

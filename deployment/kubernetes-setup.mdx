@@ -1,0 +1,180 @@
+---
+title: "Deploy Spring Cloud Microservices to Kubernetes"
+sidebarTitle: "K8s Setup"
+description: "Step-by-step guide to deploying all four Spring Cloud microservices to Minikube or any Kubernetes cluster in the correct dependency order."
+---
+
+Deploying to Kubernetes gives you the full platform: **msvc-auth** (OAuth2 Authorization Server), **msvc-gateway** (API Gateway), **msvc-usuarios**, and **msvc-cursos** — together with Spring Cloud Kubernetes service discovery, Horizontal Pod Autoscaling, and NGINX Ingress for external traffic routing and rate limiting.
+
+## Prerequisites
+
+Before applying any manifests, make sure the following are in place:
+
+- **kubectl** configured and pointing to your target cluster (`kubectl cluster-info` should succeed)
+- **Minikube** (or any Kubernetes cluster — GKE, EKS, kind, etc.)
+- **Docker Hub access** to pull the pre-built images at `miguelrodriguez15/*`
+- **NGINX Ingress controller** enabled on your cluster (see the Minikube section below)
+
+## Deployment Order
+
+The order in which manifests are applied matters. Databases must be ready before the application services start, and **msvc-auth must be running before msvc-usuarios and msvc-cursos** because both depend on its OAuth2 token issuer endpoint.
+
+<Steps>
+  <Step title="Storage — PersistentVolumes and PersistentVolumeClaims">
+    Provision the host-path volumes that MySQL and PostgreSQL will use to persist data across pod restarts.
+
+    ```bash
+    kubectl apply -f mysql-pv.yaml -f mysql-pvc.yaml
+    kubectl apply -f postgres-pv.yaml -f postgres-pvc.yaml
+    ```
+
+    Both volumes are `2Gi`, use the `standard` StorageClass, and bind with `ReadWriteOnce` access mode. The `DirectoryOrCreate` host-path type creates the directory automatically on the node if it does not yet exist.
+  </Step>
+
+  <Step title="Databases — MySQL 8 and PostgreSQL 14">
+    Deploy the database pods and their ClusterIP services so that the application containers can resolve them by name inside the cluster.
+
+    ```bash
+    kubectl apply -f deployment-mysql.yaml -f svc-mysql.yaml
+    kubectl apply -f deployment-postgres.yaml -f svc-postgres.yaml
+    ```
+
+    Wait for the database pods to become ready before continuing:
+
+    ```bash
+    kubectl wait --for=condition=ready pod -l app=mysql8 --timeout=120s
+    kubectl wait --for=condition=ready pod -l role=postgres --timeout=120s
+    ```
+
+    - MySQL 8 is reachable inside the cluster as `mysql8:3306` and initialises the `msvc_usuarios` database.
+    - PostgreSQL 14 is reachable as `postgres14:5432` and initialises the `msvc_cursos` database.
+  </Step>
+
+  <Step title="Configuration — ConfigMap and Secrets">
+    Apply the ConfigMaps and Secrets that the application pods read as environment variables. These must exist before any application pod starts or the pods will fail with missing environment variable errors.
+
+    ```bash
+    kubectl apply -f configmap.yaml
+    kubectl apply -f secret.yaml
+    ```
+
+    `configmap.yaml` creates three ConfigMaps: `msvc-usuarios`, `msvc-usuarios-config` (Spring profile YAML), and `msvc-cursos`. `secret.yaml` creates `msvc-usuarios` and `msvc-cursos` Secrets containing base64-encoded database credentials.
+  </Step>
+
+  <Step title="msvc-auth — OAuth2 Authorization Server (deploy first)">
+    Deploy the OAuth2 Authorization Server **before** the business services. Both msvc-usuarios and msvc-cursos validate Bearer tokens against the issuer URI published by msvc-auth (`LB_AUTH_ISSUER_URI`). If msvc-auth is not up, the other services will fail their startup health checks.
+
+    ```bash
+    kubectl apply -f auth.yml
+    ```
+
+    `auth.yml` contains both the `Deployment` and the `LoadBalancer` Service for msvc-auth on port **9000**. Wait for the pod to be ready:
+
+    ```bash
+    kubectl wait --for=condition=ready pod -l app=msvc-auth --timeout=120s
+    ```
+  </Step>
+
+  <Step title="Business Services — msvc-usuarios and msvc-cursos">
+    Deploy the two business microservices. Each deployment includes liveness, readiness, and startup probes against `/actuator/health` so Kubernetes will not route traffic until Spring Boot has fully started.
+
+    ```bash
+    kubectl apply -f deployment-usuarios.yaml -f svc-usuarios.yaml
+    kubectl apply -f deployment-cursos.yaml -f svc-cursos.yaml
+    ```
+
+    - **msvc-usuarios** runs on port **8001** and connects to MySQL via `mysql8:3306`.
+    - **msvc-cursos** runs on port **8002** and connects to PostgreSQL via `postgres14:5432`.
+    - Both services are of type `LoadBalancer`, making them directly accessible on Minikube via `minikube service`.
+  </Step>
+
+  <Step title="Gateway — msvc-gateway">
+    Deploy the Spring Cloud Gateway, which routes external traffic to the downstream services. It is applied last among the application tier because it routes to msvc-usuarios and msvc-cursos.
+
+    ```bash
+    kubectl apply -f gateway.yaml
+    ```
+
+    `gateway.yaml` contains both the `Deployment` and the `LoadBalancer` Service for msvc-gateway on port **8090**.
+  </Step>
+
+  <Step title="HPA — Horizontal Pod Autoscalers">
+    Apply the Horizontal Pod Autoscaler resources for the two business services. HPAs require the Metrics Server to be running; see the Minikube section below.
+
+    ```bash
+    kubectl apply -f hpa-usuarios.yaml -f hpa-cursos.yaml
+    ```
+
+    Each HPA scales between **1 and 5 replicas** when average CPU utilisation exceeds **50%**. See [Autoscaling & Ingress](/deployment/autoscaling-ingress) for full details.
+  </Step>
+
+  <Step title="Ingress — NGINX Ingress">
+    Finally, apply the Ingress resource to expose msvc-usuarios and msvc-cursos externally through the NGINX Ingress controller at the hostname `microservicios.local`.
+
+    ```bash
+    kubectl apply -f ingress.yaml
+    ```
+
+    The Ingress also enforces rate limiting (10 RPS per IP) and rewrites path prefixes before forwarding to the backend services.
+  </Step>
+</Steps>
+
+## Verify the Deployment
+
+After applying all manifests, confirm that every resource is healthy:
+
+```bash
+kubectl get pods
+kubectl get services
+kubectl get hpa
+kubectl get ingress
+```
+
+All pods should show `Running` status. The HPA column `TARGETS` will show `<unknown>` until Metrics Server has scraped at least one data point.
+
+## Minikube-Specific Setup
+
+If you are running locally with Minikube, complete these steps after applying the manifests:
+
+```bash
+# Enable the NGINX Ingress addon
+minikube addons enable ingress
+
+# Enable the Metrics Server addon (required for HPA)
+minikube addons enable metrics-server
+
+# Get the external URLs for each LoadBalancer service
+minikube service msvc-auth --url
+minikube service msvc-usuarios --url
+minikube service msvc-cursos --url
+minikube service msvc-gateway --url
+
+# Add the Minikube IP to /etc/hosts so the Ingress hostname resolves
+echo "$(minikube ip) microservicios.local" | sudo tee -a /etc/hosts
+```
+
+## Accessing Services via Ingress
+
+Once `/etc/hosts` is updated with the Minikube IP, you can reach both APIs through the Ingress at `microservicios.local`:
+
+```bash
+# Users API via Ingress
+curl http://microservicios.local/usuarios
+
+# Courses API via Ingress
+curl http://microservicios.local/cursos
+```
+
+Both requests are handled by the NGINX Ingress, which strips the path prefix and forwards `/` to the respective backend service.
+
+## Updating a Service
+
+Because all deployments use `imagePullPolicy: Always`, the fastest way to deploy a new image tag (`latest`) is to delete the existing deployment and re-apply the manifest. Kubernetes will pull the latest image from Docker Hub on the new pod start:
+
+```bash
+# Force re-pull of latest image by deleting and recreating the deployment
+kubectl delete deployment msvc-usuarios
+kubectl apply -f deployment-usuarios.yaml
+```
+
+Repeat for any other service that needs updating by replacing `msvc-usuarios` and `deployment-usuarios.yaml` with the relevant names.

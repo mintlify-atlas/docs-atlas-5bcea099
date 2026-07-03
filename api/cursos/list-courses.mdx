@@ -1,0 +1,89 @@
+---
+title: "GET / — List All Courses"
+sidebarTitle: "List Courses"
+description: "Returns a flat array of all courses stored in msvc-cursos. No authentication is required. The transient `usuarios` array is always empty in this response."
+---
+
+Retrieves every course record persisted in the PostgreSQL database backing `msvc-cursos`. The response is a flat JSON array of `Curso` objects. Because the `usuarios` field is marked `@Transient`, it is **not** populated here — call [GET /\{id\}](/api/cursos/get-course) to retrieve a single course with its enrolled users resolved from `msvc-usuarios`.
+
+No authentication is required for this endpoint.
+
+## Endpoint
+
+```
+GET http://localhost:8002/
+```
+
+**Via API Gateway:**
+
+```
+GET http://localhost:8090/api/cursos/
+```
+
+---
+
+## Response
+
+**200 OK** — An array of `Curso` objects.
+
+<ResponseField name="[].id" type="number">
+  Auto-generated primary key of the course.
+</ResponseField>
+
+<ResponseField name="[].nombre" type="string">
+  Human-readable name of the course.
+</ResponseField>
+
+<ResponseField name="[].cursoUsuarios" type="array">
+  Junction table entries linking enrolled users to this course.
+</ResponseField>
+
+<ResponseField name="[].cursoUsuarios[].id" type="number">
+  Auto-generated primary key of the `CursoUsuario` record in the `cursos_usuarios` table.
+</ResponseField>
+
+<ResponseField name="[].cursoUsuarios[].usuarioId" type="number">
+  The ID of the enrolled user as stored in `msvc-usuarios`.
+</ResponseField>
+
+<ResponseField name="[].usuarios" type="array">
+  Always an empty array in the list response. User details are fetched on demand via `GET /\{id\}`.
+</ResponseField>
+
+---
+
+## Example
+
+### Request
+
+```bash
+curl http://localhost:8002/
+```
+
+### Response — 200 OK
+
+```json
+[
+  {
+    "id": 1,
+    "nombre": "Spring Boot 3",
+    "cursoUsuarios": [
+      { "id": 1, "usuarioId": 3 },
+      { "id": 2, "usuarioId": 7 }
+    ],
+    "usuarios": []
+  },
+  {
+    "id": 2,
+    "nombre": "Microservices with Docker",
+    "cursoUsuarios": [],
+    "usuarios": []
+  }
+]
+```
+
+---
+
+<Note>
+  The `usuarios` field is a transient property populated only when the course is fetched individually via `GET /\{id\}`. The list endpoint returns an empty array for `usuarios` on every item regardless of enrollment state.
+</Note>

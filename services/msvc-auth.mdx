@@ -1,0 +1,131 @@
+---
+title: "msvc-auth: OAuth2 Authorization Server"
+sidebarTitle: "msvc-auth"
+description: "Spring Authorization Server issuing JWT tokens on port 9000. Supports Authorization Code, OIDC 1.0, and refresh tokens. Delegates user lookup to msvc-usuarios."
+---
+
+`msvc-auth` is a Spring Authorization Server (Spring Boot 3.5 / Spring Cloud 2025) running on **port 9000**. It has no database of its own — all user credential lookups are delegated to `msvc-usuarios` via a reactive `WebClient` call to the `/login` endpoint. Once credentials are verified it issues signed JWT access tokens and handles the full OAuth2 Authorization Code flow with OIDC 1.0 support.
+
+<Card title="msvc-auth at a glance" icon="lock">
+  | Property | Value |
+  |---|---|
+  | Port | `9000` |
+  | Database | None |
+  | Docker image | `miguelrodriguez15/msvc-auth:latest` |
+  | User store | Delegated to `msvc-usuarios` via WebClient |
+</Card>
+
+## OAuth2 Client Configuration
+
+A single registered client (`usuarios-client`) is stored in memory and configured in `SecurityConfig.java`. The client secret is BCrypt-encoded at startup — the plain-text value is `12345`.
+
+| Property | Value |
+|---|---|
+| Client ID | `usuarios-client` |
+| Client Secret | `12345` (BCrypt encoded at runtime) |
+| Authentication Method | `CLIENT_SECRET_BASIC` |
+| Grant Types | `authorization_code`, `refresh_token` |
+| Scopes | `openid`, `read`, `write` |
+| Redirect URI | `${LB_AUTH_REDIRECT_URI}/authorized` |
+| Post-Logout Redirect URI | `${LB_AUTH_REDIRECT_URI}/authorized` |
+| Requires Consent | `true` |
+
+The redirect URI is assembled at startup from the `LB_AUTH_REDIRECT_URI` environment variable, so the same Docker image can be deployed to any environment without rebuilding.
+
+```java
+RegisteredClient oidcClient = RegisteredClient.withId(UUID.randomUUID().toString())
+    .clientId("usuarios-client")
+    .clientSecret(passwordEncoder().encode("12345"))
+    .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+    .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+    .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
+    .redirectUri(env.getProperty("LB_AUTH_REDIRECT_URI") + "/authorized")
+    .scope(OidcScopes.OPENID)
+    .scope("read")
+    .scope("write")
+    .clientSettings(ClientSettings.builder().requireAuthorizationConsent(true).build())
+    .build();
+```
+
+## Authorization Endpoints
+
+Spring Authorization Server exposes the following standard endpoints automatically:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/oauth2/authorize` | Start the Authorization Code flow |
+| `POST` | `/oauth2/token` | Exchange authorization code for tokens |
+| `GET` | `/oauth2/jwks` | Public RSA key set (JWK Set URI) |
+| `GET` | `/userinfo` | OIDC UserInfo (requires `openid` scope) |
+| `POST` | `/oauth2/revoke` | Revoke an access or refresh token |
+| `GET` | `/.well-known/oauth-authorization-server` | OAuth2 server metadata document |
+
+<Tip>
+  Resource servers such as `msvc-usuarios` resolve the issuer metadata and JWK Set at startup. Point them to `http://msvc-auth:9000` (or the value of `LB_AUTH_ISSUER_URI`) so they can validate tokens without any additional configuration.
+</Tip>
+
+## JWT Key Management
+
+`SecurityConfig.java` generates a fresh **RSA 2048-bit** key pair in memory every time the service starts:
+
+```java
+private static KeyPair generateRsaKey() {
+    KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
+    keyPairGenerator.initialize(2048);
+    return keyPairGenerator.generateKeyPair();
+}
+```
+
+The public key is published at `/oauth2/jwks` as a JWK Set so that resource servers can verify token signatures. A random `keyID` (UUID) is assigned to each pair.
+
+<Warning>
+  Keys are **not persisted**. Every restart generates a new key pair, which invalidates all previously issued tokens. In production, consider externalising the key pair via Kubernetes Secrets and injecting it as a `JWKSource` bean.
+</Warning>
+
+## Environment Variables
+
+| Variable | Description | Example |
+|---|---|---|
+| `LB_AUTH_REDIRECT_URI` | Base URL appended with `/authorized` as the OAuth2 redirect URI | `http://msvc-usuarios:8001` |
+| `LB_USUARIOS_URI` | Base URL used by the `WebClient` bean to reach `msvc-usuarios` | `http://msvc-usuarios:8001` |
+
+<Info>
+  `msvc-auth` uses Spring Cloud Kubernetes client-side load balancing (`spring-cloud-starter-kubernetes-client-loadbalancer`). When deployed to Kubernetes, the `WebClient` call to `http://msvc-usuarios/login` resolves automatically through Kubernetes service discovery — no hard-coded IP addresses are needed.
+</Info>
+
+## Dockerfile
+
+The image uses a two-stage build: the `builder` stage compiles and packages the JAR with Maven Wrapper, and the runtime stage copies only the JAR to keep the final image small.
+
+```dockerfile
+FROM amazoncorretto:17-alpine-jdk AS builder
+
+WORKDIR /app/msvc-auth
+
+COPY ./pom.xml /app/
+COPY ./msvc-auth/.mvn ./.mvn
+COPY ./msvc-auth/mvnw .
+COPY ./msvc-auth/pom.xml .
+
+RUN ./mvnw clean package -Dmaven.test.skip -Dmaven.main.skip -Dspring-boot.repackage.skip
+
+COPY ./msvc-auth/src ./src
+
+RUN ./mvnw clean package -DskipTests
+
+FROM amazoncorretto:17-alpine-jdk
+
+WORKDIR /app
+
+COPY --from=builder /app/msvc-auth/target/msvc-auth-0.0.1-SNAPSHOT.jar .
+
+EXPOSE 9000
+
+CMD ["java", "-jar", "msvc-auth-0.0.1-SNAPSHOT.jar"]
+```
+
+## Dependencies
+
+<Warning>
+  `msvc-auth` **requires `msvc-usuarios` to be running** before it can authenticate any user. The `UsuarioService` calls `GET /login?email={email}` on `msvc-usuarios` inside `loadUserByUsername`. If the upstream service is unreachable, the login attempt will fail with `UsernameNotFoundException`.
+</Warning>

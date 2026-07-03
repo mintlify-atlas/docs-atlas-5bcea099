@@ -1,0 +1,130 @@
+---
+title: "Using Bearer Tokens to Call Protected Endpoints"
+sidebarTitle: "Token Usage"
+description: "Pass your JWT access_token as a Bearer header to reach msvc-usuarios and msvc-cursos. Scope read covers GETs; scope write covers POST, PUT, and DELETE."
+---
+
+Once you have an `access_token` from `msvc-auth`, include it as a Bearer token in the `Authorization` header of every protected request. `msvc-usuarios` enforces scope-based authorization using Spring Security's `oauth2ResourceServer` JWT support; `msvc-cursos` requires a valid Bearer token only for the course detail endpoint that fetches enrolled users.
+
+## Attaching the Token
+
+Pass the token in the standard `Authorization: Bearer <access_token>` header:
+
+```bash
+# List users — requires scope: read
+curl http://localhost:8001/ \
+  -H 'Authorization: Bearer <access_token>'
+
+# Create a user — requires scope: write
+curl -X POST http://localhost:8001/ \
+  -H 'Authorization: Bearer <access_token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"nombre": "Ana García", "email": "ana@example.com", "password": "secret"}'
+
+# Get course detail with enrolled users — Bearer required
+curl http://localhost:8002/1 \
+  -H 'Authorization: Bearer <access_token>'
+```
+
+<Note>
+  The password field is BCrypt-hashed by `msvc-usuarios` before being stored. Send the plaintext value in the request body; the service handles encoding automatically.
+</Note>
+
+## Scope Requirements
+
+`msvc-usuarios` maps scopes to HTTP methods in its `SecurityFilterChain`. The table below shows the exact authority required for each endpoint:
+
+| Endpoint | Method | Required Scope |
+|---|---|---|
+| `/` (usuarios) | GET | `read` |
+| `/{id}` (usuarios) | GET | `read` |
+| `/` (usuarios) | POST | `write` |
+| `/{id}` (usuarios) | PUT | `write` |
+| `/{id}` (usuarios) | DELETE | `write` |
+| `/usuarios-por-curso` | GET | `read` |
+| `/{id}` (cursos) | GET | Bearer (any valid token) |
+| All other `/cursos` routes | — | No token required |
+
+The `SecurityConfig` in `msvc-usuarios` expresses these rules as:
+
+```java
+.requestMatchers(HttpMethod.GET, "/", "/{id}").hasAnyAuthority("SCOPE_read", "SCOPE_write")
+.requestMatchers(HttpMethod.POST, "/").hasAnyAuthority("SCOPE_write")
+.requestMatchers(HttpMethod.PUT, "/{id}").hasAnyAuthority("SCOPE_write")
+.requestMatchers(HttpMethod.DELETE, "/{id}").hasAnyAuthority("SCOPE_write")
+.anyRequest().authenticated()
+```
+
+<Tip>
+  A token issued with `scope=read` can still access all `GET` endpoints because `hasAnyAuthority("SCOPE_read", "SCOPE_write")` accepts either authority. If you only need read access, omit `write` from the authorization request scopes.
+</Tip>
+
+## Via the Gateway
+
+All requests can also be sent through `msvc-gateway` on port 8090. The gateway routes `/api/usuarios/**` to `msvc-usuarios` and `/api/cursos/**` to `msvc-cursos`, forwarding headers — including `Authorization` — transparently:
+
+```bash
+# List users through the gateway on port 8090
+curl http://localhost:8090/api/usuarios/ \
+  -H 'Authorization: Bearer <access_token>'
+
+# Get course detail (with enrolled users) through the gateway
+curl http://localhost:8090/api/cursos/1 \
+  -H 'Authorization: Bearer <access_token>'
+```
+
+When running in Kubernetes with the NGINX Ingress enabled, the same calls are reachable via the cluster hostname:
+
+```bash
+curl http://microservicios.local/usuarios/ \
+  -H 'Authorization: Bearer <access_token>'
+
+curl http://microservicios.local/cursos/1 \
+  -H 'Authorization: Bearer <access_token>'
+```
+
+## Token Decoding
+
+The `access_token` is a standard three-part JWT (`header.payload.signature`). You can inspect the claims without a library by base64-decoding the payload segment:
+
+```bash
+# Decode the payload (not verification — for debugging only)
+echo '<token_payload_base64>' | base64 -d | python3 -m json.tool
+```
+
+A typical JWT payload from `msvc-auth` contains:
+
+```json
+{
+  "sub": "ana@example.com",
+  "aud": "usuarios-client",
+  "iss": "http://msvc-auth:9000",
+  "iat": 1718000000,
+  "exp": 1718000300,
+  "scope": "openid read write"
+}
+```
+
+| Claim | Meaning |
+|---|---|
+| `sub` | The authenticated user's email address |
+| `aud` | The intended audience (client ID) |
+| `iss` | The issuer URI of `msvc-auth` |
+| `iat` | Issued-at timestamp (Unix seconds) |
+| `exp` | Expiry timestamp — token is invalid after this |
+| `scope` | Space-separated list of granted scopes |
+
+<Warning>
+  The RSA keys rotate on every restart of `msvc-auth`. If `msvc-usuarios` or `msvc-cursos` start returning `401 Unauthorized` after a restart, it means the cached JWK Set is stale. Restart those services so they re-fetch the new public key from `GET /oauth2/jwks` on `msvc-auth`.
+</Warning>
+
+## OIDC UserInfo
+
+When the token was issued with the `openid` scope, you can retrieve the authenticated user's identity claims from the OIDC UserInfo endpoint without decoding the JWT manually:
+
+```bash
+curl http://<auth-server>:9000/userinfo \
+  -H 'Authorization: Bearer <access_token>'
+```
+
+The response returns a JSON object with standard OIDC claims such as `sub`, `email`, and any profile attributes populated by the authorization server.

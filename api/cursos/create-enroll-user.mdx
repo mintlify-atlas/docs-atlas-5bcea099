@@ -1,0 +1,116 @@
+---
+title: "POST /crear-usuario/{cursoId} — Create and Enroll User"
+sidebarTitle: "Create & Enroll"
+description: "Creates a new user in msvc-usuarios via OpenFeign and immediately enrolls them in the specified course. Returns the created Usuario on HTTP 201."
+---
+
+A composite operation that (1) creates a new `Usuario` in `msvc-usuarios` by calling `POST /` via OpenFeign, then (2) creates a `CursoUsuario` junction record that links the new user to the specified course. Both steps occur inside the same transactional service method. If either step throws a `FeignException`, the entire operation fails and a `404` response is returned — the course enrollment is not recorded in that case.
+
+Use this endpoint when you need to register a brand-new user and immediately assign them to a course in one HTTP call. To enroll a user who already exists in `msvc-usuarios`, use [PUT /asignar-usuario/\{cursoId\}](/api/cursos/enroll-user) instead.
+
+No authentication is required for this endpoint.
+
+## Endpoint
+
+```
+POST http://localhost:8002/crear-usuario/{cursoId}
+```
+
+**Via API Gateway:**
+
+```
+POST http://localhost:8090/api/cursos/crear-usuario/{cursoId}
+```
+
+---
+
+## Path Parameters
+
+<ParamField path="cursoId" type="number" required>
+  The primary key of the course the newly created user will be enrolled in.
+</ParamField>
+
+---
+
+## Request Body
+
+`Content-Type: application/json`
+
+<ParamField body="nombre" type="string" required>
+  Full name of the new user. Forwarded to `msvc-usuarios` verbatim.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Email address of the new user. Must be unique in `msvc-usuarios`.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Plain-text password. `msvc-usuarios` is responsible for hashing before persistence.
+</ParamField>
+
+---
+
+## Response
+
+**201 Created** — The `Usuario` object returned by `msvc-usuarios` after creation, reflecting the assigned `id` and persisted fields.
+
+<ResponseField name="id" type="number">
+  Auto-generated primary key assigned by `msvc-usuarios`.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  Name of the newly created user.
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Email address of the newly created user.
+</ResponseField>
+
+<ResponseField name="password" type="string">
+  Hashed password as stored by `msvc-usuarios`.
+</ResponseField>
+
+---
+
+**404 Not Found** — Returned when the Feign call to `msvc-usuarios` throws a `FeignException` (e.g. validation failure, duplicate email, service unavailable) or when no course with `cursoId` exists.
+
+<ResponseField name="mensaje" type="string">
+  Error message prefixed with `"No se pudo crear el usuarioo error en la comunicacion: "` followed by the Feign exception message.
+</ResponseField>
+
+---
+
+## Examples
+
+### Request
+
+```bash
+curl -X POST http://localhost:8002/crear-usuario/1 \
+  -H "Content-Type: application/json" \
+  -d '{"nombre":"Ana","email":"ana@test.com","password":"pass"}'
+```
+
+### Response — 201 Created
+
+```json
+{
+  "id": 8,
+  "nombre": "Ana",
+  "email": "ana@test.com",
+  "password": "$2a$10$hashed..."
+}
+```
+
+### Response — 404 Not Found (Feign error from msvc-usuarios)
+
+```json
+{
+  "mensaje": "No se pudo crear el usuarioo error en la comunicacion: [400 Bad Request] during [POST] to [http://msvc-usuarios/]"
+}
+```
+
+---
+
+<Note>
+  This endpoint creates the user inside `msvc-usuarios` (a separate microservice and separate database). If the user is created successfully but saving the `CursoUsuario` record subsequently fails at the database level (e.g. a constraint violation), the user may already exist in `msvc-usuarios` without being enrolled — there is no distributed rollback. Design your retry logic accordingly.
+</Note>

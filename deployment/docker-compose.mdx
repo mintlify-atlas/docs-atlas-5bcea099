@@ -1,0 +1,157 @@
+---
+title: "Run the Stack Locally with Docker Compose"
+sidebarTitle: "Docker Compose"
+description: "Start msvc-usuarios and msvc-cursos alongside their databases locally using Docker Compose, with port mappings, persistent volumes, and teardown instructions."
+---
+
+Docker Compose is the fastest way to run `msvc-usuarios` and `msvc-cursos` locally alongside their databases. `msvc-auth` and `msvc-gateway` are not included in the Compose file — for the full authenticated flow you must deploy to Kubernetes.
+
+## What Docker Compose Starts
+
+| Service | Container | Port (host:container) | Purpose |
+|---|---|---|---|
+| MySQL 8 | `mysql8` | `3307:3306` | msvc-usuarios database |
+| PostgreSQL 14 | `postgres-cursos` | `5532:5432` | msvc-cursos database |
+| msvc-usuarios | `msvc-usuarios` | `8001:8001` | Users REST API |
+| msvc-cursos | `msvc-cursos` | `8002:8002` | Courses REST API |
+
+## Prerequisites
+
+- **Docker Desktop** (macOS / Windows) or **Docker Engine + Docker Compose plugin** (Linux)
+- Docker Hub access to pull the public images:
+  - `miguelrodriguez15/msvc-usuarios:latest`
+  - `miguelrodriguez15/msvc-cursos:latest`
+
+## Quick Start
+
+<Steps>
+  <Step title="Databases only (recommended for development)">
+    Start only the database containers first. This is faster and lets you run the Java services from your IDE against real databases:
+
+    ```bash
+    docker compose up mysql8 postgres-cursos -d
+    ```
+  </Step>
+
+  <Step title="Full stack (databases + services)">
+    Start all four containers — both databases and both microservices — in detached mode:
+
+    ```bash
+    docker compose up -d
+    ```
+  </Step>
+
+  <Step title="Check containers are running">
+    Confirm all expected containers are listed with a `running` status:
+
+    ```bash
+    docker compose ps
+    ```
+  </Step>
+
+  <Step title="Verify health endpoints">
+    Spring Actuator exposes health probes on both services. A healthy response confirms the service started and connected to its database:
+
+    ```bash
+    curl http://localhost:8001/actuator/health
+    curl http://localhost:8002/actuator/health
+    ```
+
+    Expected response:
+
+    ```json
+    {"status":"UP","components":{"db":{"status":"UP"},"livenessState":{"status":"UP"},"readinessState":{"status":"UP"}}}
+    ```
+  </Step>
+
+  <Step title="Make a test request (list users)">
+    The Users API is available immediately on port 8001. Because `msvc-auth` is not running locally, this endpoint responds without requiring a Bearer token in the Docker Compose environment:
+
+    ```bash
+    curl http://localhost:8001/
+    ```
+  </Step>
+</Steps>
+
+## Stopping and Cleanup
+
+```bash
+# Stop all services but keep database volumes intact
+docker compose down
+
+# Stop all services and remove all volumes (destroys all database data)
+docker compose down -v
+```
+
+## Building Images Locally
+
+The `docker-compose.yml` references pre-built images from Docker Hub by default. You can build locally from source and use those instead:
+
+```bash
+# Build msvc-usuarios from source
+cd msvc-usuarios
+docker build -t miguelrodriguez15/msvc-usuarios:latest .
+
+# Build msvc-cursos from source
+cd msvc-cursos
+docker build -t miguelrodriguez15/msvc-cursos:latest .
+```
+
+The Compose file references `env_file: msvc-usuarios/.env` and `env_file: msvc-cursos/.env`. Create those files in the respective subdirectories to supply or override any environment variables for local development:
+
+```bash
+# msvc-usuarios/.env
+PORT=8001
+DB_HOT=mysql8:3306
+DB_DATABASE=msvc_usuarios
+DB_USERNAME=root
+DB_PASSWORD=admin123
+```
+
+```bash
+# msvc-cursos/.env
+PORT=8002
+DB_HOST=postgres-cursos:5432
+DB_DATABASE=msvc_cursos
+DB_USERNAME=postgres
+DB_PASSWORD=postgres123
+```
+
+## Persistent Volumes
+
+Docker named volumes keep database data intact across container restarts:
+
+| Volume | Mounted in | Data location |
+|---|---|---|
+| `data-mysql` | `mysql8` | `/var/lib/mysql` |
+| `data-postgres` | `postgres-cursos` | `/var/lib/postgresql/data` |
+
+Both volumes are declared at the bottom of `docker-compose.yml`:
+
+```yaml
+volumes:
+  data-mysql:
+    name: data-mysql
+  data-postgres:
+    name: data-postgres
+```
+
+To delete the volumes and start with a clean database state:
+
+```bash
+docker compose down -v
+```
+
+## Shared Network
+
+All four services are attached to a Docker bridge network named `spring`. Within that network, containers resolve each other by service name — for example, `msvc-usuarios` connects to MySQL using the hostname `mysql8` and `msvc-cursos` connects to PostgreSQL using `postgres-cursos`.
+
+```yaml
+networks:
+  spring:
+    name: spring
+```
+
+<Note>
+  `msvc-auth` (the OAuth2 authorization server) and `msvc-gateway` are **not** part of `docker-compose.yml`. Running the full authenticated flow — obtaining a JWT and using it as a Bearer token — requires deploying all four services to Kubernetes. See [Kubernetes Setup](/deployment/kubernetes-setup).
+</Note>

@@ -1,0 +1,207 @@
+---
+title: "Log Observability with the ELK Stack"
+sidebarTitle: "ELK Stack"
+description: "Structured JSON logs from msvc-usuarios and msvc-cursos flow over TCP to Logstash, are indexed by Elasticsearch, and are visualized in Kibana."
+---
+
+Both `msvc-usuarios` and `msvc-cursos` emit structured JSON logs via Logback and ship them over TCP to Logstash on port 5000. Logstash normalizes the events and writes them to Elasticsearch under dynamic per-service, per-date indices. Kibana provides a browser UI for searching, filtering, and visualizing the aggregated log stream.
+
+## Services and Ports
+
+| Service | URL | Purpose |
+|---|---|---|
+| Elasticsearch | http://localhost:9200 | Stores and indexes log documents |
+| Kibana | http://localhost:5601 | Search and visualize logs |
+| Logstash TCP input | localhost:5000 | Receives JSON log events from services |
+
+## Starting the ELK Stack
+
+All three components are defined in `docker-compose-elk.yml` and run on a shared `elk` bridge network. Start them with:
+
+```bash
+docker compose -f docker-compose-elk.yml up -d
+
+# Verify all containers are running
+docker compose -f docker-compose-elk.yml ps
+
+# Check Elasticsearch is ready
+curl http://localhost:9200/_cluster/health
+```
+
+## Logstash Pipeline
+
+The pipeline file at `logstash/pipeline/logstash.conf` is mounted into the Logstash container and controls how log events are received, transformed, and routed to Elasticsearch.
+
+```conf
+input {
+  tcp {
+    port => 5000
+    codec => json_lines
+  }
+}
+
+filter {
+  if [service_name] {
+    mutate {
+      add_field => { "[@metadata][index_name]" => "%{service_name}" }
+      lowercase => [ "[@metadata][index_name]" ]
+    }
+  } else {
+    mutate {
+      add_field => { "[@metadata][index_name]" => "unknown-service" }
+    }
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["http://elasticsearch:9200"]
+    index => "msvc-logs-%{[@metadata][index_name]}-%{+YYYY.MM.dd}"
+  }
+  stdout { codec => rubydebug }
+}
+```
+
+**How the pipeline works:**
+
+- **Input** — Listens on TCP port 5000 using the `json_lines` codec. Each newline-delimited JSON object sent by a service becomes one Elasticsearch document.
+- **Filter** — Reads the `service_name` field that each microservice injects into every log event. If present, it is lowercased and stored in `[@metadata][index_name]` for use in the output stage. Events lacking a `service_name` field are routed to an `unknown-service` index so they are never silently dropped.
+- **Output** — Writes to Elasticsearch using a dynamic index name composed of the service name and the current UTC date (`YYYY.MM.dd`). A secondary `stdout` output with `rubydebug` codec echoes events to the Logstash container log, which is useful for debugging the pipeline.
+
+## Logback Configuration
+
+Each microservice activates the ELK Logback profile by running with the Spring profile `elk`. When that profile is active, Logback uses `LogstashTcpSocketAppender` to open a persistent TCP connection to Logstash and stream JSON-encoded log events in real time.
+
+Both services share an identical Logback configuration pattern. The snippet below is from `msvc-usuarios/src/main/resources/logback-spring.xml` (the `msvc-cursos` configuration is identical, differing only in its default `APP_NAME`):
+
+```xml
+<configuration>
+
+    <springProperty scope="context" name="APP_NAME"
+                    source="spring.application.name"
+                    defaultValue="msvc-usuarios"/>
+
+    <!-- Default profile: plain-text logs to console -->
+    <springProfile name="!elk">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- ELK profile: JSON logs to console and Logstash over TCP -->
+    <springProfile name="elk">
+        <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <includeMdcKeyName>traceId</includeMdcKeyName>
+                <customFields>{"service_name":"${APP_NAME}"}</customFields>
+            </encoder>
+        </appender>
+
+        <appender name="LOGSTASH"
+                  class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+            <destination>${LOGSTASH_HOST:-localhost}:5000</destination>
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <customFields>{"service_name":"${APP_NAME}"}</customFields>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE_JSON"/>
+            <appender-ref ref="LOGSTASH"/>
+        </root>
+    </springProfile>
+
+</configuration>
+```
+
+Key points:
+
+- `LogstashEncoder` serializes every log event as a single-line JSON object, compatible with the `json_lines` codec configured in Logstash.
+- `customFields` injects `"service_name"` into every event using the value of `spring.application.name` (`msvc-usuarios` or `msvc-cursos`). The Logstash filter uses this field to build the dynamic index name.
+- `includeMdcKeyName traceId` forwards distributed trace IDs if they are present in the MDC, enabling cross-service log correlation.
+- The destination falls back to `localhost:5000` when the `LOGSTASH_HOST` environment variable is not set, so the configuration works both locally and in Docker/Kubernetes (where `LOGSTASH_HOST` is set to the Logstash service name).
+
+To activate ELK logging when running a service locally, start it with the `elk` Spring profile:
+
+```bash
+java -jar msvc-usuarios.jar --spring.profiles.active=elk
+```
+
+## Index Pattern
+
+Elasticsearch indices follow the naming convention:
+
+```
+msvc-logs-{service_name}-{YYYY.MM.dd}
+```
+
+For the two microservices in this project, indices created on a given day look like:
+
+```
+msvc-logs-msvc-usuarios-2025.06.15
+msvc-logs-msvc-cursos-2025.06.15
+```
+
+The daily rotation keeps individual index sizes manageable and allows time-based index lifecycle management (ILM) policies to be applied independently per service.
+
+## Kibana Setup
+
+<Steps>
+  <Step title="Open Kibana">
+    Navigate to [http://localhost:5601](http://localhost:5601) in your browser. Allow up to 60 seconds for Kibana to finish initializing on first startup.
+  </Step>
+  <Step title="Go to Index Patterns / Data Views">
+    Open the main menu and navigate to **Stack Management → Index Patterns** (Kibana 7) or **Stack Management → Data Views** (Kibana 8).
+  </Step>
+  <Step title="Create the index pattern">
+    Click **Create index pattern** (or **Create data view**) and enter the pattern:
+
+    ```
+    msvc-logs-*
+    ```
+
+    This wildcard matches all service indices regardless of service name or date.
+  </Step>
+  <Step title="Set the time field">
+    When prompted for a time field, select **`@timestamp`**. This is the field automatically populated by `LogstashEncoder` and enables time-range filtering in Discover.
+  </Step>
+  <Step title="Explore logs in Discover">
+    Go to **Discover**, select the **`msvc-logs-*`** data view from the dropdown, and use the **`service_name`** field in the left-hand field list to filter down to a specific microservice.
+  </Step>
+</Steps>
+
+## Searching Logs
+
+Kibana's Discover view accepts KQL (Kibana Query Language) expressions in the search bar. Common queries for this project:
+
+| Goal | KQL query |
+|---|---|
+| Logs from msvc-usuarios only | `service_name: msvc-usuarios` |
+| Logs from msvc-cursos only | `service_name: msvc-cursos` |
+| Error-level events across all services | `level: ERROR` |
+| Warnings from msvc-cursos | `service_name: msvc-cursos AND level: WARN` |
+| All events in the last hour | Use the time picker — select **Last 1 hour** |
+| Events containing a specific message | `message: *NullPointer*` |
+
+You can also filter by clicking any field value in the document table — Kibana will add a `+` filter automatically.
+
+## ELK Versions
+
+All three images in `docker-compose-elk.yml` are pinned to **ELK Stack 8.11.0**:
+
+```yaml
+elasticsearch: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+logstash:      docker.elastic.co/logstash/logstash:8.11.0
+kibana:        docker.elastic.co/kibana/kibana:8.11.0
+```
+
+Security is disabled (`xpack.security.enabled=false`) for local development simplicity. Do not use this configuration in production without re-enabling X-Pack security.
+
+<Note>
+  The ELK stack is resource-intensive. Elasticsearch alone recommends at least 2 GB of JVM heap in production. The `docker-compose-elk.yml` in this project configures Elasticsearch with 512 MB (`-Xms512m -Xmx512m`) and Logstash with 256 MB (`-Xms256m -Xmx256m`) to keep local resource usage manageable. Ensure Docker Desktop has at least **8 GB** of memory allocated for the full ELK stack alongside the microservices.
+</Note>

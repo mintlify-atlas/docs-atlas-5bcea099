@@ -1,0 +1,197 @@
+---
+title: "Kubernetes Manifests Reference for All Services"
+sidebarTitle: "K8s Manifests"
+description: "Reference for every Kubernetes manifest in the repository: what each file deploys, ConfigMap and Secret configuration, resource limits, and RBAC requirements."
+---
+
+The repository ships all Kubernetes manifests needed to run the complete platform — storage, databases, application services, configuration, autoscaling, and ingress. This page describes each manifest file, its Kubernetes `kind`, and the role it plays in the deployment.
+
+## Manifest Files
+
+| File | Kind | Purpose |
+|---|---|---|
+| `mysql-pv.yaml` | PersistentVolume | 2 Gi host-path volume for MySQL data at `/data/mysql` |
+| `mysql-pvc.yaml` | PersistentVolumeClaim | Claims the `mysql-pv` volume for the MySQL pod |
+| `postgres-pv.yaml` | PersistentVolume | 2 Gi host-path volume for PostgreSQL data at `/data/postgres` |
+| `postgres-pvc.yaml` | PersistentVolumeClaim | Claims storage for the PostgreSQL pod |
+| `deployment-mysql.yaml` | Deployment | MySQL 8.0 pod — creates the `msvc_usuarios` database |
+| `svc-mysql.yaml` | Service | ClusterIP service `mysql8` on port 3306 |
+| `deployment-postgres.yaml` | Deployment | PostgreSQL 14-alpine pod — creates the `msvc_cursos` database |
+| `svc-postgres.yaml` | Service | ClusterIP service `postgres14` on port 5432 |
+| `auth.yml` | Deployment + Service | `msvc-auth` OAuth2 Authorization Server on port 9000 (LoadBalancer) |
+| `deployment-usuarios.yaml` | Deployment | `msvc-usuarios` business service on port 8001 |
+| `svc-usuarios.yaml` | Service | LoadBalancer service for `msvc-usuarios` on port 8001 (ClientIP session affinity) |
+| `deployment-cursos.yaml` | Deployment | `msvc-cursos` business service on port 8002 |
+| `svc-cursos.yaml` | Service | LoadBalancer service for `msvc-cursos` on port 8002 |
+| `gateway.yaml` | Deployment + Service | `msvc-gateway` API Gateway on port 8090 (LoadBalancer) |
+| `configmap.yaml` | ConfigMap | Environment variables for `msvc-usuarios`, `msvc-usuarios-config`, and `msvc-cursos` |
+| `secret.yaml` | Secret | Base64-encoded database credentials for `msvc-usuarios` and `msvc-cursos` |
+| `hpa-usuarios.yaml` | HorizontalPodAutoscaler | Scales `msvc-usuarios` between 1–5 replicas at 50% average CPU |
+| `hpa-cursos.yaml` | HorizontalPodAutoscaler | Scales `msvc-cursos` between 1–5 replicas at 50% average CPU |
+| `ingress.yaml` | Ingress | NGINX Ingress at `microservicios.local` with rate limiting |
+
+## ConfigMap
+
+`configmap.yaml` defines three ConfigMap resources. The `msvc-usuarios` and `msvc-cursos` ConfigMaps supply per-service environment variables. The `msvc-usuarios-config` ConfigMap carries an embedded `application.yaml` that Spring Cloud Kubernetes mounts as profile-aware configuration.
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: msvc-usuarios
+data:
+  LB_AUTH_ISSUER_URI: "http://192.168.49.2:30794"
+  LB_AUTH_REDIRECT_URI: "http://192.168.49.2:31415"
+  LB_USUARIOS_URI: "http://192.168.49.2:31415"
+  PORT: "8001"
+  DB_HOT: "mysql8:3306"
+  DB_DATABASE: "msvc_usuarios"
+  CURSOS_URL: "msvc-cursos:8002"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: msvc-usuarios-config
+data:
+  application.yaml: |
+    config:
+      texto: "configuracion ambiente por defecto"
+    ---
+    spring:
+      config:
+        activate:
+          on-profile: dev
+    config:
+      texto: "configuracion ambiente de desarrollo"
+    ---
+    spring:
+      config:
+        activate:
+          on-profile: prod
+    config:
+      texto: "configuracion ambiente de produccion"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: msvc-cursos
+data:
+  PORT: "8002"
+  DB_HOST: "postgres14:5432"
+  DB_DATABASE: "msvc_cursos"
+  USUARIOS_URL: "msvc-usuarios:8001"
+```
+
+### Key variables explained
+
+| Variable | Service | Description |
+|---|---|---|
+| `LB_AUTH_ISSUER_URI` | msvc-usuarios | OAuth2 issuer URL that msvc-usuarios uses to validate Bearer tokens |
+| `LB_AUTH_REDIRECT_URI` | msvc-usuarios, msvc-auth | OAuth2 redirect URI after authorization code flow completes |
+| `LB_USUARIOS_URI` | msvc-auth | URL of msvc-usuarios, used by msvc-auth to look up user credentials |
+| `DB_HOT` | msvc-usuarios | MySQL host and port in `host:port` format (`mysql8:3306`) |
+| `CURSOS_URL` | msvc-usuarios | In-cluster address of msvc-cursos used by OpenFeign (`msvc-cursos:8002`) |
+| `DB_HOST` | msvc-cursos | PostgreSQL host and port (`postgres14:5432`) |
+| `USUARIOS_URL` | msvc-cursos | In-cluster address of msvc-usuarios used by OpenFeign (`msvc-usuarios:8001`) |
+| `config.texto` | msvc-usuarios | Demo value injected from `msvc-usuarios-config`; changes per active Spring profile |
+
+<Note>
+  The `LB_AUTH_ISSUER_URI` and redirect URI values contain the Minikube node IP (`192.168.49.2`) and NodePort numbers. Update these values to match your cluster's actual IP and port assignments before applying.
+</Note>
+
+## Secret
+
+`secret.yaml` contains two `Opaque` Secrets with base64-encoded database credentials:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: msvc-usuarios
+type: Opaque
+data:
+  DB_USERNAME: cm9vdA==       # root
+  DB_PASSWORD: YWRtaW4xMjM=  # admin123
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: msvc-cursos
+type: Opaque
+data:
+  DB_USERNAME: cG9zdGdyZXM=  # postgres
+  DB_PASSWORD: YWRtaW4xMjM=  # admin123
+```
+
+To encode a new credential value:
+
+```bash
+echo -n 'admin123' | base64
+# → YWRtaW4xMjM=
+```
+
+To verify a value that is already in a Secret:
+
+```bash
+echo -n 'YWRtaW4xMjM=' | base64 --decode
+# → admin123
+```
+
+<Warning>
+  Replace all default credentials (`admin123`, `root`, `postgres`) before deploying to any non-local environment. The default passwords are committed in plain sight in the repository for development convenience only.
+</Warning>
+
+## Resource Requests and Limits
+
+Both `deployment-usuarios.yaml` and `deployment-cursos.yaml` define explicit resource constraints on their containers:
+
+| Setting | msvc-usuarios | msvc-cursos |
+|---|---|---|
+| Memory request | 512 Mi | 512 Mi |
+| Memory limit | 800 Mi | 800 Mi |
+| CPU request | 400 m | 400 m |
+| CPU limit | 500 m | 500 m |
+
+These values are also what the Horizontal Pod Autoscalers use as the denominator when calculating average CPU utilisation. If a pod's CPU request is `400m` and the HPA target is `50%`, the autoscaler will begin scaling out when the pod consumes approximately `200m` of CPU.
+
+<Note>
+  The database deployments (`deployment-mysql.yaml`, `deployment-postgres.yaml`) and the `auth.yml` / `gateway.yaml` manifests do not currently define resource requests or limits. Add them before running in a shared or production cluster to prevent resource contention.
+</Note>
+
+## RBAC
+
+Spring Cloud Kubernetes reads ConfigMaps and Secrets from the Kubernetes API at runtime to refresh configuration without restarting pods. The pod's service account must therefore have the necessary API permissions in the `default` namespace.
+
+Create a Role and RoleBinding to grant the required access:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spring-cloud-k8s-role
+  namespace: default
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets", "pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spring-cloud-k8s-binding
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spring-cloud-k8s-role
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: default
+```
+
+Without this binding, Spring Cloud Kubernetes will log `403 Forbidden` errors when attempting to watch ConfigMaps, and dynamic configuration refresh will not function.

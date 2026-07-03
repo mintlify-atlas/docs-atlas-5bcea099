@@ -1,0 +1,82 @@
+---
+title: "DELETE /{id} — Delete a User by ID"
+sidebarTitle: "Delete User"
+description: "Permanently removes a Usuario record by ID and removes all course enrollments via a Feign call to msvc-cursos. Requires a Bearer token with the OAuth2 write scope."
+---
+
+Permanently deletes the `Usuario` identified by `{id}` from the MySQL database. If the user does not exist, a `404 Not Found` is returned immediately. A valid OAuth2 Bearer token with the **`write`** scope is required.
+
+**Base URL:** `http://localhost:8001`  
+**Gateway URL:** `http://localhost:8090/api/usuarios`
+
+<Note>
+  Deleting a user triggers an internal Feign client call from `msvc-usuarios` to `msvc-cursos`. This removes all course enrollments associated with the deleted user across every course record. The deletion of enrollments is handled automatically — no additional client request is needed.
+</Note>
+
+---
+
+## Endpoint
+
+```
+DELETE http://localhost:8001/{id}
+```
+
+---
+
+## Request
+
+### Headers
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <access_token>` |
+
+### Path Parameters
+
+<ParamField path="id" type="Long" required>
+  The numeric primary key of the user to delete. Must be a positive integer.
+</ParamField>
+
+---
+
+## Response
+
+### 204 No Content
+
+The user was found and successfully deleted. The response body is empty.
+
+### 404 Not Found
+
+Returned when no user exists for the provided `id`. The response body is empty.
+
+---
+
+## Example
+
+### Request
+
+```bash
+curl -X DELETE http://localhost:8001/1 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+Via the API Gateway:
+
+```bash
+curl -X DELETE http://localhost:8090/api/usuarios/1 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### 204 Response
+
+```
+HTTP/1.1 204 No Content
+(empty body)
+```
+
+### 404 Response
+
+```
+HTTP/1.1 404 Not Found
+(empty body)
+```

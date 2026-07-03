@@ -1,0 +1,82 @@
+---
+title: "POST / — Create a New Course"
+sidebarTitle: "Create Course"
+description: "Persists a new course in the msvc-cursos PostgreSQL database. Only the `nombre` field is accepted. Returns the created Curso with HTTP 201."
+---
+
+Creates a new `Curso` record in the `cursos` table. The request body must contain a `nombre` value — the field is annotated `@NotEmpty` in the entity. On success the newly created course is returned with its auto-generated `id`, an empty `cursoUsuarios` list, and an empty `usuarios` list.
+
+No authentication is required for this endpoint.
+
+## Endpoint
+
+```
+POST http://localhost:8002/
+```
+
+**Via API Gateway:**
+
+```
+POST http://localhost:8090/api/cursos/
+```
+
+---
+
+## Request Body
+
+`Content-Type: application/json`
+
+<ParamField body="nombre" type="string" required>
+  The name of the course. Must not be empty (`@NotEmpty`).
+</ParamField>
+
+---
+
+## Response
+
+**201 Created** — The persisted `Curso` object.
+
+<ResponseField name="id" type="number">
+  Auto-generated primary key assigned by PostgreSQL.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  The name supplied in the request body.
+</ResponseField>
+
+<ResponseField name="cursoUsuarios" type="array">
+  Always an empty array on creation — no users are enrolled yet.
+</ResponseField>
+
+<ResponseField name="usuarios" type="array">
+  Always an empty array on creation (transient field, not persisted).
+</ResponseField>
+
+---
+
+## Example
+
+### Request
+
+```bash
+curl -X POST http://localhost:8002/ \
+  -H "Content-Type: application/json" \
+  -d '{"nombre":"Spring Boot 3"}'
+```
+
+### Response — 201 Created
+
+```json
+{
+  "id": 3,
+  "nombre": "Spring Boot 3",
+  "cursoUsuarios": [],
+  "usuarios": []
+}
+```
+
+---
+
+<Note>
+  Only the `nombre` field is persisted. Any additional fields sent in the request body are ignored. To add users to a course after creation, use [PUT /asignar-usuario/\{cursoId\}](/api/cursos/enroll-user) or [POST /crear-usuario/\{cursoId\}](/api/cursos/create-enroll-user).
+</Note>

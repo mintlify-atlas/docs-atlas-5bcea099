@@ -1,0 +1,94 @@
+---
+title: "GET /{id} — Get a Single User by ID"
+sidebarTitle: "Get User"
+description: "Retrieves a single Usuario record by its primary key. Requires a Bearer token with the OAuth2 read scope. Returns 404 when the ID does not exist."
+---
+
+Looks up a single `Usuario` by its auto-generated numeric ID. If the record exists it is returned as a JSON object; if no user matches the given ID the endpoint returns an empty `404 Not Found` response. A valid OAuth2 Bearer token with the **`read`** scope is required.
+
+**Base URL:** `http://localhost:8001`  
+**Gateway URL:** `http://localhost:8090/api/usuarios`
+
+---
+
+## Endpoint
+
+```
+GET http://localhost:8001/{id}
+```
+
+---
+
+## Request
+
+### Headers
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <access_token>` |
+| `Content-Type` | `application/json` |
+
+### Path Parameters
+
+<ParamField path="id" type="Long" required>
+  The numeric primary key of the user to retrieve. Must be a positive integer.
+</ParamField>
+
+---
+
+## Response
+
+### 200 OK
+
+Returns a single `Usuario` object. The `password` field is **never** included in the response.
+
+<ResponseField name="id" type="number">
+  Auto-generated primary key of the user.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  The user's display name.
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  The user's unique email address.
+</ResponseField>
+
+### 404 Not Found
+
+Returned when no user exists for the provided `id`. The response body is empty.
+
+---
+
+## Example
+
+### Request
+
+```bash
+curl -X GET http://localhost:8001/1 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+Via the API Gateway:
+
+```bash
+curl -X GET http://localhost:8090/api/usuarios/1 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### 200 Response
+
+```json
+{
+  "id": 1,
+  "nombre": "Ana García",
+  "email": "ana.garcia@example.com"
+}
+```
+
+### 404 Response
+
+```
+HTTP/1.1 404 Not Found
+(empty body)
+```

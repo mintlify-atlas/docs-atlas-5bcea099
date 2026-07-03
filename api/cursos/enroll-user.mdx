@@ -1,0 +1,108 @@
+---
+title: "PUT /asignar-usuario/{cursoId} — Enroll Existing User"
+sidebarTitle: "Enroll User"
+description: "Enrolls a user that already exists in msvc-usuarios into a course by creating a CursoUsuario junction record. Returns the enrolled Usuario on HTTP 201."
+---
+
+Enrolls an existing user into a course. The request body must supply at minimum the `id` of the user to enroll. The service calls `msvc-usuarios` via OpenFeign (`GET /{id}`) to verify the user exists, then creates a `CursoUsuario` junction record in the `cursos_usuarios` table linking the user to the specified course.
+
+If the Feign call to `msvc-usuarios` fails (user not found, service unavailable, etc.) a `404 Not Found` response is returned with a descriptive message. The user must already exist in `msvc-usuarios` before calling this endpoint — to create a new user and enroll them in one step see [POST /crear-usuario/\{cursoId\}](/api/cursos/create-enroll-user).
+
+No authentication is required for this endpoint.
+
+## Endpoint
+
+```
+PUT http://localhost:8002/asignar-usuario/{cursoId}
+```
+
+**Via API Gateway:**
+
+```
+PUT http://localhost:8090/api/cursos/asignar-usuario/{cursoId}
+```
+
+---
+
+## Path Parameters
+
+<ParamField path="cursoId" type="number" required>
+  The primary key of the course into which the user will be enrolled.
+</ParamField>
+
+---
+
+## Request Body
+
+`Content-Type: application/json`
+
+<ParamField body="id" type="number" required>
+  The primary key of the user in `msvc-usuarios`. The service calls `msvc-usuarios` using this ID to confirm the user exists before creating the enrollment record.
+</ParamField>
+
+---
+
+## Response
+
+**201 Created** — The `Usuario` object returned by `msvc-usuarios` for the enrolled user.
+
+<ResponseField name="id" type="number">
+  Primary key of the user in `msvc-usuarios`.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  Full name of the enrolled user.
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Email address of the enrolled user.
+</ResponseField>
+
+<ResponseField name="password" type="string">
+  Hashed password as stored in `msvc-usuarios`.
+</ResponseField>
+
+---
+
+**404 Not Found** — Returned when the Feign call to `msvc-usuarios` throws a `FeignException` (e.g. the user does not exist or the service is unreachable), or when no course with `cursoId` exists.
+
+<ResponseField name="mensaje" type="string">
+  Human-readable error message prefixed with `"No existe el usuario por id o error en la comunicación: "` followed by the Feign exception message.
+</ResponseField>
+
+---
+
+## Examples
+
+### Request
+
+```bash
+curl -X PUT http://localhost:8002/asignar-usuario/1 \
+  -H "Content-Type: application/json" \
+  -d '{"id": 2}'
+```
+
+### Response — 201 Created
+
+```json
+{
+  "id": 2,
+  "nombre": "Carlos López",
+  "email": "carlos@example.com",
+  "password": "$2a$10$hashed..."
+}
+```
+
+### Response — 404 Not Found (user not found in msvc-usuarios)
+
+```json
+{
+  "mensaje": "No existe el usuario por id o error en la comunicación: [404 Not Found] during [GET] to [http://msvc-usuarios/99]"
+}
+```
+
+---
+
+<Note>
+  The `usuarioId` stored in the `cursos_usuarios` junction table is sourced from the `id` returned by `msvc-usuarios`, not from the raw value sent in the request body. The Feign round-trip ensures only valid users can be enrolled. Because `usuarioId` has a `unique` constraint in the `cursos_usuarios` table, a user can only be enrolled in one course at a time.
+</Note>

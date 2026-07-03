@@ -1,0 +1,171 @@
+---
+title: "msvc-cursos: Course Management REST API"
+sidebarTitle: "msvc-cursos"
+description: "REST API for course CRUD and user enrollment on port 8002. Backed by PostgreSQL 14, uses OpenFeign to communicate with msvc-usuarios for user data."
+---
+
+`msvc-cursos` is a Spring Boot REST API running on **port 8002** that manages courses and their enrolled users. Course records are persisted in **PostgreSQL 14**. User details are not duplicated — `msvc-cursos` stores only the `usuarioId` in a junction table and fetches the full user objects from `msvc-usuarios` at query time via **Spring Cloud OpenFeign**.
+
+<Card title="msvc-cursos at a glance" icon="graduation-cap">
+  | Property | Value |
+  |---|---|
+  | Port | `8002` |
+  | Database | PostgreSQL 14 (`msvc_cursos`) |
+  | Docker image | `miguelrodriguez15/msvc-cursos:latest` |
+  | Inter-service | OpenFeign → `msvc-usuarios` |
+</Card>
+
+## Data Models
+
+### `Curso` Entity
+
+The `Curso` entity is persisted to the `cursos` table. The `usuarios` field is a transient list that is populated by calling `msvc-usuarios` — it is never stored in PostgreSQL.
+
+| Field | Java Type | Notes |
+|---|---|---|
+| `id` | `long` | Primary key, auto-generated (`IDENTITY`) |
+| `nombre` | `String` | `@NotEmpty` — validated on create/update |
+| `cursoUsuarios` | `List<CursoUsuario>` | `@OneToMany`, `CascadeType.ALL`, stored in `cursos_usuarios` |
+| `usuarios` | `List<Usuario>` | `@Transient` — populated at runtime from `msvc-usuarios` |
+
+```java
+@Entity
+@Table(name = "cursos")
+public class Curso {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private long id;
+
+    @NotEmpty
+    private String nombre;
+
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinColumn(name = "curso_id")
+    private List<CursoUsuario> cursoUsuarios;
+
+    @Transient
+    private List<Usuario> usuarios;
+}
+```
+
+### `CursoUsuario` Entity (Junction Table)
+
+`CursoUsuario` is the join entity stored in the `cursos_usuarios` table. It records which `usuarioId` values are enrolled in a given course. The `usuarioId` column has a unique constraint, preventing a user from being enrolled in the same course twice.
+
+| Field | Java Type | Notes |
+|---|---|---|
+| `id` | `Long` | Primary key, auto-generated |
+| `usuarioId` | `Long` | `@Column(unique = true)` — foreign key to `msvc-usuarios` |
+
+```java
+@Entity
+@Table(name = "cursos_usuarios")
+public class CursoUsuario {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "usuario_id", unique = true)
+    private Long usuarioId;
+}
+```
+
+## API Endpoints
+
+| Method | Path | Description | Auth |
+|---|---|---|---|
+| `GET` | `/` | List all courses | — |
+| `GET` | `/{id}` | Get course with enrolled user details | Bearer token required |
+| `POST` | `/` | Create a new course | — |
+| `PUT` | `/{id}` | Update course name | — |
+| `DELETE` | `/{id}` | Delete a course | — |
+| `PUT` | `/asignar-usuario/{cursoId}` | Enroll an existing user in a course | — |
+| `POST` | `/crear-usuario/{cursoId}` | Create a new user via `msvc-usuarios` and enroll them | — |
+| `DELETE` | `/eliminar-usuario/{cursoId}` | Unenroll a user from a course | — |
+| `DELETE` | `/eliminar-curso-usuario/{id}` | Remove an enrollment record by its own ID | — |
+
+<Note>
+  `GET /{id}` requires an `Authorization: Bearer <token>` header. The token is forwarded to `msvc-usuarios` so that the Feign client can call the resource server on behalf of the original request.
+</Note>
+
+### Enrollment Endpoints Detail
+
+**`PUT /asignar-usuario/{cursoId}`** — enroll an existing user. The request body must include a `Usuario` object with at least the `id` field. The service looks up the user in `msvc-usuarios` before creating the `CursoUsuario` record.
+
+**`POST /crear-usuario/{cursoId}`** — create a brand-new user in `msvc-usuarios` and immediately enroll them in the given course. The full `Usuario` object (with `nombre`, `email`, and `password`) is forwarded to `msvc-usuarios` via Feign.
+
+**`DELETE /eliminar-usuario/{cursoId}`** — removes the matching `CursoUsuario` row and disassociates the user from the course without deleting the user from `msvc-usuarios`.
+
+## Inter-Service Communication
+
+`msvc-cursos` uses **Spring Cloud OpenFeign** to communicate with `msvc-usuarios`. The Feign client is configured to call the service at the URL resolved from the `USUARIOS_URL` environment variable.
+
+For the `GET /{id}` endpoint, the JWT bearer token from the incoming `Authorization` header is extracted from the request context and forwarded in the outbound Feign call to `msvc-usuarios`. This ensures that user data can only be retrieved by callers who hold a valid token with the appropriate scope.
+
+```java
+@GetMapping("/{id}")
+public ResponseEntity<?> detalle(
+        @PathVariable Long id,
+        @RequestHeader(value = "Authorization", required = true) String token) {
+    Optional<Curso> o = service.porIdConUsuarios(id, token);
+    if (o.isPresent()) {
+        return ResponseEntity.ok(o.get());
+    }
+    return ResponseEntity.notFound().build();
+}
+```
+
+<Info>
+  Feign errors (e.g., `msvc-usuarios` is unreachable) are caught as `FeignException` and returned as `404 Not Found` with a descriptive message — the enrollment operations will not leave partial state.
+</Info>
+
+## Environment Variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `PORT` | Server port | `8002` |
+| `DB_HOST` | PostgreSQL host and port | `postgres-cursos:5432` |
+| `DB_DATABASE` | Database name | `msvc_cursos` |
+| `DB_USERNAME` | Database user | `postgres` |
+| `DB_PASSWORD` | Database password | `postgres123` |
+| `USUARIOS_URL` | Base URL for the `msvc-usuarios` Feign client | `msvc-usuarios:8001` |
+
+## Dockerfile
+
+The image uses a two-stage build and runs as a non-root `spring` user:
+
+```dockerfile
+# ====== ETAPA 1: BUILD ======
+FROM amazoncorretto:17-alpine-jdk AS builder
+
+WORKDIR /app/msvc-cursos
+
+COPY ./pom.xml /app/
+COPY ./msvc-cursos/.mvn ./.mvn
+COPY ./msvc-cursos/mvnw .
+COPY ./msvc-cursos/pom.xml .
+
+RUN ./mvnw clean package -Dmaven.test.skip \
+    -Dmaven.main.skip -Dspring-boot.repackage.skip
+
+COPY ./msvc-cursos/src ./src
+
+RUN ./mvnw clean package -DskipTests
+
+# ====== ETAPA 2: RUNTIME ======
+FROM amazoncorretto:17-alpine-jdk
+
+WORKDIR /app
+
+RUN addgroup -S spring && adduser -S spring -G spring
+
+COPY --from=builder /app/msvc-cursos/target/msvc-cursos-0.0.1-SNAPSHOT.jar .
+
+EXPOSE 8002
+
+USER spring
+
+ENTRYPOINT ["java", "-jar", "msvc-cursos-0.0.1-SNAPSHOT.jar"]
+```
